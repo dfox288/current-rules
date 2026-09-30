@@ -1,7 +1,7 @@
 # Trait: `landfall-ui`
 
-Your repo uses the `@landfall/ui` layer. The layer's own contract (its parts, their props, its naming rules) is its
-README at the version your repo pins: read `node_modules/@landfall/ui/README.md` before building UI. This trait
+Your repo uses the `@dfox288/landfall-ui` layer. The layer's own contract (its parts, their props, its naming rules) is its
+README at the version your repo pins: read `node_modules/@dfox288/landfall-ui/README.md` before building UI. This trait
 only says how your repo uses the layer.
 
 ## Rules
