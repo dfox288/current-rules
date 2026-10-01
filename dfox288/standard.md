@@ -19,6 +19,11 @@ only be judged true in aggregate across many jobs is a goal, not here — you ar
   code, not a filtered excerpt.*
 - **[rule]** Size the checks you run to the change you made — don't run the full suite for a one-line fix, don't
   skip the suite for a wide one. *Check: reviewer judges proportionality against the diff.*
+- **[rule]** A red check is a finding until proven otherwise: report it with its output, don't explain it away.
+  *Check: reviewer reads the report for a red check called flaky, unrelated or environmental without evidence.*
+- **[rule]** A focused run shows its focus: read the count of files or tests it ran, and it must be non-zero and match
+  what you named. A filter that matches nothing, or is silently dropped (an argument the script swallows, an
+  `--exclude` the runner ignores), still exits 0. *Check: reviewer requires the count in the report.*
 
 ## Measurement
 
@@ -27,6 +32,21 @@ only be judged true in aggregate across many jobs is a goal, not here — you ar
   (a planted match, a deliberately broken case) alongside the zero.*
 - **[rule]** The same bar applies to "still open" as to "closed" — don't declare either without having watched
   the check fail once. *Check: reviewer reads for this reasoning in the report, not just the conclusion.*
+- **[rule]** The control goes through the same command, and tests the axis of your claim: a planted match proves
+  the pattern works, not that an unrelated classifier does. *Check: reviewer reads the control against the claim it
+  backs.*
+- **[rule]** A scan covers every place the thing can be read (templates, scripts, selector strings, CSS, tests,
+  tooling config), and you read the hits before counting them (a pattern for hex colours also matches issue numbers).
+  Read the whole file (`wc -l` first) before claiming something is missing from it. *Check: reviewer compares the
+  scan's scope with the places the name can live.*
+- **[rule]** Before you run a check, say what its failure would look like; if you can't, it cannot fail (two
+  different failures that both return 404 prove nothing by status code). *Check: reviewer reads the report for what
+  the check could have shown.*
+- **[rule]** A break-it must reach the check it tests: if the build fails on the break before the check runs, it
+  proved nothing. Undo it with an edit, never `git checkout -- <file>` over uncommitted work. *Check: reviewer reads
+  the break-it's output.*
+- **[rule]** Every count in your report names its control and whether it fired; a zero without one is reported as
+  "not measured". *Check: reviewer reads each count for its control.*
 
 ## Commits and issues
 
