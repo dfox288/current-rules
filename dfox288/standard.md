@@ -24,6 +24,9 @@ only be judged true in aggregate across many jobs is a goal, not here — you ar
 - **[rule]** A focused run shows its focus: read the count of files or tests it ran, and it must be non-zero and match
   what you named. A filter that matches nothing, or is silently dropped (an argument the script swallows, an
   `--exclude` the runner ignores), still exits 0. *Check: reviewer requires the count in the report.*
+- **[rule]** Run a check in the foreground and wait for it to return; never start it in the background and `sleep` a
+  guessed time. The check returns when it is done, and every second slept after that is time the job waits for
+  nothing. *Check: reviewer reads the transcript summary for a `sleep` while a check ran.*
 
 ## Measurement
 
