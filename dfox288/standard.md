@@ -47,6 +47,12 @@ only be judged true in aggregate across many jobs is a goal, not here — you ar
   the break-it's output.*
 - **[rule]** Every count in your report names its control and whether it fired; a zero without one is reported as
   "not measured". *Check: reviewer reads each count for its control.*
+- **[rule]** A red-first test is shown red: run it against the code before your change and quote the failure. The
+  failure must be the behaviour the test is about, not a missing import, symbol or API the old code never had. If
+  the test cannot go red there (the old code already behaves as asked, or the only failure is the missing symbol),
+  the spec's premise is false: report that with the run, and don't present the test as red-first proof. *Check:
+  reviewer reads the quoted red run against the behaviour; a red-first claim without one is unmet; a premise the
+  worker showed false goes back to the spec, not to the worker as unmet.*
 
 ## Commits and issues
 
