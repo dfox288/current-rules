@@ -53,7 +53,8 @@ jobs:
 
       - name: Install the fixtures
         run: |
-          pnpm -C presets/fixtures/nuxt-app install --frozen-lockfile
+          # not frozen: pnpm cannot freeze a `file:` dependency on a package that has optional peers
+          pnpm -C presets/fixtures/nuxt-app install --no-frozen-lockfile
           pnpm -C presets/fixtures/nuxt-app exec playwright install --with-deps chromium
           uv sync --project presets/fixtures/python-pkg --group test --frozen
 
