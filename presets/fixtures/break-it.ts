@@ -176,6 +176,22 @@ const pytestCases: Case[] = [
     },
   },
   {
+    name: 'importlib\'s bytecode write into __pycache__ is allowed, a plain write beside it is not',
+    plant: [
+      { from: 'test_small_bytecode.py', to: 'tests/test_small_bytecode.py' },
+      { from: '_bytecode_probe.py', to: 'tests/_bytecode_probe.py' },
+    ],
+    command: [...pyrun, 'tests/test_small_bytecode.py'],
+    expect: 'red',
+    message: /^(?=[\s\S]*\(open [^)]*planted-plain\.txt\))(?=[\s\S]*\(open [^)]*planted-lookalike\.pyc\.123\))(?![\s\S]*__pycache__)(?=[\s\S]*2 failed, 1 passed)/,
+    after: (f) => {
+      const left = ['planted-plain.txt', 'planted-lookalike.pyc.123'].filter((n) => existsSync(join(f, n)))
+      left.forEach((n) => rmSync(join(f, n), { recursive: true, force: true }))
+      rmSync(join(f, 'tests/__pycache__/_bytecode_probe.cpython-314.pyc'), { force: true })
+      return left.length ? `written anyway: ${left.join(', ')}` : undefined
+    },
+  },
+  {
     name: 'tempfile idioms are a small test\'s own temp files',
     plant: pyPlant('test_tempfile_idioms.py'),
     command: [...pyrun, 'tests/test_tempfile_idioms.py'],

@@ -4,10 +4,12 @@ Sockets are `pytest-socket`'s (see plugin.py). The write guard is a Python audit
 `open`, `os.mkdir`, `shutil.copyfile`, ... including the ones made in C, and it is active only while a
 small test runs. Allowed roots for a small test: its `tmp_path`, and whatever the test itself created
 through `tempfile` (mkdtemp, TemporaryDirectory, NamedTemporaryFile, mkstemp). Python's own bytecode
-cache (`__pycache__/*.pyc`) is always allowed: a lazy import must not fail.
+cache is always allowed, so a lazy import must not fail: `__pycache__/<name>.pyc`, and the temp file importlib
+writes first and renames onto it, `__pycache__/<name>.pyc.<digits>`. Nothing else under `__pycache__`.
 """
 
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -32,6 +34,9 @@ WRITE_EVENTS: dict[str, tuple[tuple[int, int | None], ...]] = {
     "shutil.move": ((1, None),),
     "shutil.rmtree": ((0, 1),),
 }
+
+# importlib's `_write_atomic` opens `<name>.pyc.<id(path)>`, then `os.replace`s it onto `<name>.pyc`
+_BYTECODE_NAME = re.compile(r"[^/\\]+\.pyc(\.\d+)?")
 
 _WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
 
@@ -86,8 +91,13 @@ def _resolve(path: object, dir_fd: object = None) -> str | None:
     return os.path.realpath(text)
 
 
+def _is_bytecode_cache(path: str) -> bool:
+    directory, name = os.path.split(path)
+    return os.path.basename(directory) == "__pycache__" and _BYTECODE_NAME.fullmatch(name) is not None
+
+
 def _inside(path: str) -> bool:
-    if path == os.devnull or (path.endswith(".pyc") and f"{os.sep}__pycache__{os.sep}" in path):
+    if path == os.devnull or _is_bytecode_cache(path):
         return True
     return any(path == root or path.startswith(root + os.sep) for root in state.allowed)
 
