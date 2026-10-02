@@ -43,7 +43,7 @@ const vitestCases: Case[] = [
     plant: [{ from: 'small-network.test.ts', to: 'test/nuxt/small-network.test.ts' }],
     command: [...run, 'test/nuxt/small-network.test.ts'],
     expect: 'red',
-    message: /\|nuxt\|[\s\S]*tests of the small tier never touch the network \(fetch http:\/\/203\.0\.113\.1\/\)/,
+    message: /(\|nuxt\||\[nuxt\])[\s\S]*tests of the small tier never touch the network \(fetch http:\/\/203\.0\.113\.1\/\)/,
   },
   {
     name: 'a test cannot raise its tier limit (small and medium)',
