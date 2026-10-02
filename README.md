@@ -1,5 +1,9 @@
 # current-rules
 
+> **What this is:** the working rules for our own coding agents (run by Current) in our own repos, and the test
+> presets those repos install. Public so our repos can install the presets without a token. Not a product, not
+> maintained for outside use, no support; feel free to read or borrow.
+
 The rules Current's agents work by, for the realms owned by dfox288: one folder per realm, each holding
 `standard.md` (the realm standard) and `traits/<name>.md` (one file per trait a repo can list).
 
