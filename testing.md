@@ -72,17 +72,17 @@ A test's tier is set by what it may touch, not by how much code it covers.
 
 ## Tests written for a change
 
-- **[contract item]** For a bug fix or a behaviour change, the new test is run against the old code and the red run is
-  recorded with its failure text. The failure is an assertion, not an import or missing-symbol error. *(Not enforced yet: horizon-surveyor#72; until then the reviewer checks it.)*
-- **[contract item]** Adding tests is free. Changing or removing an existing assertion is flagged by the gate; the
-  worker names the reason. *(Not enforced yet: horizon-surveyor#72; until then the reviewer checks it.)*
+- **[rule]** For a bug fix or a behaviour change, the new test is run against the old code and the red run is
+  recorded with its failure text. The failure is an assertion, not an import or missing-symbol error.
+- **[rule]** Adding tests is free. Changing or removing an existing assertion is named in the report, with the
+  reason.
 - **[rule]** A test is deleted, merged into another or moved to another tier only when the spec names it, one
   commit each.
 
 ## Protected tests and the count guard
 
 - **[contract item]** A protected test carries the stack's machine-readable `protected` marker (the binding names it).
-  It is changed or deleted only with Reza's explicit go. *(Not enforced yet: horizon-surveyor#72; until then the reviewer checks it.)*
+  It is changed or deleted only with Reza's explicit go (the reviewer checks this).
 - **[rule]** A test earns `protected` only as a safety guard (the fence, secrets, data loss) or as the test for a real
   incident or decision, cited by issue or D-number.
 - **[contract item]** Every run states the test files and tests it ran. The gate fails a tier that ran zero tests or
