@@ -1,6 +1,6 @@
 {
   "name": "@dfox288/test-preset-vitest",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The Vitest preset of the testing baseline: tiers as projects, limits, guards, count guard, e2e helpers",
   "license": "UNLICENSED",
   "type": "module",
