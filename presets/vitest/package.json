@@ -1,0 +1,61 @@
+{
+  "name": "@dfox288/test-preset-vitest",
+  "version": "0.1.0",
+  "description": "The Vitest preset of the testing baseline: tiers as projects, limits, guards, count guard, e2e helpers",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./e2e": {
+      "types": "./dist/e2e/index.d.ts",
+      "default": "./dist/e2e/index.js"
+    },
+    "./e2e/browser": {
+      "types": "./dist/e2e/browser.d.ts",
+      "default": "./dist/e2e/browser.js"
+    },
+    "./db": {
+      "types": "./dist/db.d.ts",
+      "default": "./dist/db.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check:dist": "rm -rf .tmp/dist-check && tsc -p tsconfig.json --outDir .tmp/dist-check && diff -r dist .tmp/dist-check && echo 'dist is fresh'"
+  },
+  "peerDependencies": {
+    "@nuxt/test-utils": "^4.3.2",
+    "playwright": "1.60.0",
+    "postgres": "3.4.9",
+    "vitest": "4.1.11"
+  },
+  "peerDependenciesMeta": {
+    "@nuxt/test-utils": {
+      "optional": true
+    },
+    "playwright": {
+      "optional": true
+    },
+    "postgres": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@nuxt/test-utils": "^4.3.2",
+    "@types/node": "^24.0.0",
+    "playwright": "1.60.0",
+    "postgres": "3.4.9",
+    "typescript": "~5.9.3",
+    "vitest": "4.1.11"
+  }
+}

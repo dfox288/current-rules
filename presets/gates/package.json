@@ -1,0 +1,23 @@
+{
+  "name": "@dfox288/test-gates",
+  "version": "0.1.0",
+  "description": "The shared gate script of the testing baseline: one set of gate names for Vitest and pytest repos",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "bin": { "test-gates": "./dist/cli.js" },
+  "exports": {
+    ".": { "types": "./dist/gates.d.ts", "default": "./dist/gates.js" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test src/gates.test.ts",
+    "check:dist": "rm -rf .tmp/dist-check && tsc -p tsconfig.json --outDir .tmp/dist-check && diff -r dist .tmp/dist-check && echo 'dist is fresh'"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.3"
+  }
+}

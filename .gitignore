@@ -1,0 +1,7 @@
+node_modules/
+.tmp/
+.venv/
+__pycache__/
+*.egg-info/
+.nuxt/
+.output/
