@@ -22,8 +22,8 @@ reviewer checks them.)*
 
 ## The preset
 
-Each repo imports the `@dfox288` testing preset and the shared gate script and adds only its project list and its
-justified differences. *(Not built yet: horizon-surveyor#69. Until a repo has migrated, its own scripts and README
+Each repo installs the Vitest preset and the shared gate script from the public preset repo, as a git dependency
+pinned to a tag, and adds only its project list and its justified differences. *(Not built yet: horizon-surveyor#69. Until a repo has migrated, its own scripts and README
 apply.)*
 
 The preset sets:
@@ -42,10 +42,10 @@ The preset sets:
 
 ## Databases
 
-- **[rule]** Postgres comes from the environment (Current's `postgres` service, a service container in CI, a local
-  server at the desk); tests read it as `TEST_DATABASE_URL` and never start a container. The preset's DB helper gives
-  each test or file its own schema and drops it afterwards.
-- **[rule]** An app that ships SQLite tests on SQLite: `:memory:` or its own file per test file.
+- **[rule]** A server database (today: Postgres) comes from the environment as `TEST_DATABASE_URL`, on the engine
+  production uses; tests never start a container. The preset's DB helper gives each test or file its own schema or
+  database and drops it afterwards. An app that ships an in-process database (SQLite) tests on it directly: in memory
+  or a file per test file.
 
 ## Tool traps
 

@@ -23,8 +23,9 @@ Which system runs each line (Current or CI) is set by the check strategy, not he
 
 ## How repos stay on it
 
-- Each stack has one published preset package and one shared gate script with one set of gate names. A repo imports
-  them and adds only its project list and its justified differences. A new preset version reaches a repo as a repin. *(Not built yet for any stack: horizon-surveyor#69.)*
+- Each stack has one preset and all stacks share one gate script with one set of gate names. Both live in one public
+  GitHub repo; a repo installs them as a git dependency pinned to a tag (pnpm, uv) and adds only its project list and
+  its justified differences. No registry. A new preset version reaches a repo as a repin (the tag bumped). *(Not built yet for any stack: horizon-surveyor#69.)*
 - **[contract item]** The conformance script checks each repo against this file, its binding and the repo's declared
   traits. Each item prints red, green or NOT MEASURED; a check that could not run is never green. It runs in the gate
   before merge and on a schedule over all repos. *(Not enforced yet: horizon-surveyor#70; until then the reviewer checks it.)*
