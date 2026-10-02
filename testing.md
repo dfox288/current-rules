@@ -84,6 +84,8 @@ A test's tier is set by what it may touch, not by how much code it covers.
 - **[contract item]** A protected test carries the stack's machine-readable `protected` marker (the binding names it).
   It is changed or deleted only with Reza's explicit go (the reviewer checks this).
 - **[rule]** A test earns `protected` only as a safety guard (the fence, secrets, data loss) or as the test for a real
-  incident or decision, cited by issue or D-number.
+  incident or decision. It carries a plain sentence saying what it guards, plus `owner/repo#N` when an incident is
+  behind it. No D-numbers, audit sections or other internal references in test code: nobody outside can resolve
+  them.
 - **[contract item]** Every run states the test files and tests it ran. The gate fails a tier that ran zero tests or
   fewer than its floor. The gate raises the floor; nobody edits it by hand. *(Not enforced yet: horizon-surveyor#69; until then the reviewer checks it.)*
