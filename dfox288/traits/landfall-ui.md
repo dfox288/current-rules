@@ -52,6 +52,26 @@ only says how your repo uses the layer.
   and the changelog, since the feature may already have shipped. *Check: the reviewer compares a claimed gap with the
   installed part.*
 
+## Tests in an app
+
+- **[rule]** The layers own their parts and guards: `@dfox288/landfall-ui` tests a part's rendering, attributes and
+  states; `@dfox288/landfall-server` tests the guard, session cookie flags, security headers, the route sweep and the
+  build lints. The app tests its own composition (which part it places where, its wiring, its texts), its routes'
+  permission rules (groups to permissions) and the headers on its own self-writing routes; it does not repeat the layer's
+  assertions. *Check: reviewer reads new tests for assertions the layer already makes.*
+- **[rule]** Sign-in and sign-out are proved once, by the server layer (its `test:e2e` and `check-consumer`: the sign-out
+  click ending the session, 401 versus redirect, cookie flags, the dev user, the failed sign-in page). The app keeps its
+  groups-to-permissions mapping, its own routes' headers, and that `LSignOut` is placed where its shell expects it (a
+  mount test); it drops cookie-flag, anonymous-denial and generic security-header checks against its own server. Before
+  keeping a check "because the route is ours", confirm the route is the app's own declaration (`publicRoutes`, its own
+  health route) and not a layer default. *Check: reviewer reads new auth tests against this list.*
+- **[rule]** An app's e2e covers its own screens and flows (routes, sign-in, what it places where, a phone layout); it
+  does not re-check a part's own panel, stacking or dismissal, which the layer's playground e2e covers. e2e opens the
+  project's `*.localhost` host (mapped with `--host-resolver-rules`). A signed-in session travels as one raw `Cookie`
+  header (colour mode included): Chromium's CDP `addCookies` refuses a `__Host-`/`Secure` cookie over
+  `http://*.localhost`, and a jar cookie and a manual header don't merge. Don't `page.reload()` in a signed-in test (the
+  session is lost, root cause unknown); open a fresh context. *Check: reviewer reads new e2e files against this list.*
+
 ## A layer repin job
 
 A job whose spec names a layer version (`package: @dfox288/landfall-ui@X.Y.Z`, or `@dfox288/landfall-server`) is a

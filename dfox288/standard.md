@@ -28,6 +28,9 @@ only be judged true in aggregate across many jobs is a goal, not here — you ar
   guessed time. The check returns when it is done, and every second slept after that is time the job waits for
   nothing. *Check: reviewer reads the transcript summary for a `sleep` while a check ran.*
 
+- **[rule]** Say which checks you ran and which you skipped for this change, so a skipped check is visible rather than
+  silent. *Check: reviewer reads the report for the checks named against the diff's size.*
+
 ## Measurement
 
 - **[contract item]** A zero, a "not found", or a green check is evidence only after the same command has been
@@ -56,6 +59,14 @@ only be judged true in aggregate across many jobs is a goal, not here — you ar
   the spec's premise is false: report that with the run, and don't present the test as red-first proof. *Check:
   reviewer reads the quoted red run against the behaviour; a red-first claim without one is unmet; a premise the
   worker showed false goes back to the spec, not to the worker as unmet.*
+
+## Tests
+
+- **[rule]** A protected test is never removed, merged into another or moved to another tier by a cleanup: a
+  break-it-backed guard, security and permissions, data loss / sync / conflict handling, a regression test that names an
+  issue. Any other test is deleted or re-tiered only when the spec names it, one commit each. Availability checks
+  (survives an unwritable directory, forwards SIGTERM) are not a protected category unless they name an incident.
+  *Check: reviewer reads the diff for a deleted or moved test and compares it with the spec.*
 
 ## Commits and issues
 
