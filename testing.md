@@ -22,7 +22,7 @@ A test's tier is set by what it may touch, not by how much code it covers.
 - **Large:** a built app on a port, a browser, or several processes.
 
 - **[contract item]** Each tier has a per-test time limit, and a test that breaks its tier's rules fails. The binding
-  names the limits and which touch rules a tool enforces. *(Not enforced yet: horizon-surveyor#69; until then the reviewer checks it.)*
+  names the limits and which touch rules a tool enforces. *(Enforced by the preset once a repo has migrated; until then the reviewer checks it.)*
 
 ## What a test checks
 
@@ -48,10 +48,10 @@ A test's tier is set by what it may touch, not by how much code it covers.
 ## Retries and flaky tests
 
 - **[contract item]** No retries in small and medium. A large test may retry once; a pass on the retry is a third
-  result, "flaky", recorded, not a clean pass. *(Not enforced yet: horizon-surveyor#69; until then the reviewer checks it.)*
+  result, "flaky", recorded, not a clean pass. *(Enforced by the preset once a repo has migrated; until then the reviewer checks it.)*
 - **[rule]** A flaky test is quarantined (taken out of the suite that blocks a merge) with an issue in
   `dfox288/horizon-surveyor` and a deadline, then fixed or deleted.
-- **[contract item]** The suite reports its quarantine count. *(Not enforced yet: horizon-surveyor#69; until then the reviewer checks it.)*
+- **[contract item]** The suite reports its quarantine count. *(Enforced by the preset once a repo has migrated; until then the reviewer checks it.)*
 
 ## Large tests
 
@@ -88,4 +88,4 @@ A test's tier is set by what it may touch, not by how much code it covers.
   behind it. No D-numbers, audit sections or other internal references in test code: nobody outside can resolve
   them.
 - **[contract item]** Every run states the test files and tests it ran. The gate fails a tier that ran zero tests or
-  fewer than its floor. The gate raises the floor; nobody edits it by hand. *(Not enforced yet: horizon-surveyor#69; until then the reviewer checks it.)*
+  fewer than its floor. The gate raises the floor; nobody edits it by hand. *(Enforced by the preset once a repo has migrated; until then the reviewer checks it.)*

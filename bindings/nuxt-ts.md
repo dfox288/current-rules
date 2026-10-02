@@ -23,15 +23,16 @@ reviewer checks them.)*
 ## The preset
 
 Each repo installs the Vitest preset and the shared gate script from the public preset repo, as a git dependency
-pinned to a tag, and adds only its project list and its justified differences. *(Not built yet: horizon-surveyor#69. Until a repo has migrated, its own scripts and README
-apply.)*
+pinned to a tag, and adds only its project list and its justified differences. Until a repo has migrated, its own scripts and README
+apply. Install syntax and the options are in `presets/README.md`.
 
 The preset sets:
 
 - **Time limits per test:** small 5 s (Vitest's default `testTimeout`), `medium` tag 15 s, `e2e` project 30 s. The
   setup-hook limit (`hookTimeout`) covers the `e2e` build.
 - **Retries:** none in `unit` and `nuxt`; at most one in `e2e`, a pass on the retry reported as flaky.
-- **Tags:** `medium` and `protected`, defined once. `pnpm test --tags-filter=protected` lists the protected tests.
+- **Tags:** `medium`, `protected` and `quarantine`, defined once. `pnpm test --tags-filter=protected` lists the protected tests.
+  A `quarantine` test is skipped and counted in the run line and the gate's summary.
 - **`TZ=UTC`.**
 - **Small's guards:** an outgoing network connection fails the test; a write outside the test's temp dir fails it;
   `TEST_DATABASE_URL` is empty for untagged tests, so the DB helper throws. Sleep and server boot are not guarded;
