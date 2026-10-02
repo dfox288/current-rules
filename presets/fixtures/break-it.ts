@@ -39,6 +39,13 @@ const vitestCases: Case[] = [
     message: /tests of the small tier never touch the network \(fetch http:\/\/203\.0\.113\.1\/\)[\s\S]*tests of the small tier never touch the network \(connect 203\.0\.113\.1:80\)/,
   },
   {
+    name: 'small test opens a socket in the nuxt project',
+    plant: [{ from: 'small-network.test.ts', to: 'test/nuxt/small-network.test.ts' }],
+    command: [...run, 'test/nuxt/small-network.test.ts'],
+    expect: 'red',
+    message: /\|nuxt\|[\s\S]*tests of the small tier never touch the network \(fetch http:\/\/203\.0\.113\.1\/\)/,
+  },
+  {
     name: 'small test writes outside its temp dir',
     plant: [{ from: 'small-write.test.ts', to: 'test/unit/small-write.test.ts' }],
     command: [...run, 'test/unit/small-write.test.ts'],
@@ -123,6 +130,95 @@ const vitestControl: Case = {
 }
 
 
+const pytestFixture = join(here, 'python-pkg')
+const pyrun = ['uv', 'run', '--group', 'test', 'pytest', '-p', 'no:cacheprovider']
+const pyPlant = (file: string) => [{ from: file, to: `tests/${file}` }]
+
+const pytestCases: Case[] = [
+  {
+    name: 'control: the fixture suite is green in all three tiers',
+    plant: [],
+    command: [...pyrun],
+    expect: 'green',
+    message: /ran 5 files, 9 tests \(small 6, medium 2, large 1\)/,
+  },
+  {
+    name: 'small test opens a socket',
+    plant: pyPlant('test_small_network.py'),
+    command: [...pyrun, 'tests/test_small_network.py'],
+    expect: 'red',
+    message: /SocketBlockedError[\s\S]*SocketBlockedError[\s\S]*2 failed/,
+  },
+  {
+    name: 'small test writes outside its tmp_path',
+    plant: pyPlant('test_small_write.py'),
+    command: [...pyrun, 'tests/test_small_write.py'],
+    expect: 'red',
+    message: /^(?=[\s\S]*\(open [^)]*planted-write\.txt\))(?=[\s\S]*\(os\.mkdir [^)]*planted-dir\))(?=[\s\S]*\(shutil\.copyfile [^)]*planted-copy\.txt\))(?=[\s\S]*\(sqlite3\.connect [^)]*planted\.db\))(?=[\s\S]*6 failed)/,
+    after: (f) => {
+      const left = ['planted-write.txt', 'planted-dir', 'planted-copy.txt', 'planted.db'].filter((n) => existsSync(join(f, n)))
+      left.forEach((n) => rmSync(join(f, n), { recursive: true, force: true }))
+      return left.length ? `written anyway: ${left.join(', ')}` : undefined
+    },
+  },
+  {
+    name: 'small test asks for the database',
+    plant: pyPlant('test_small_db.py'),
+    command: [...pyrun, 'tests/test_small_db.py'],
+    expect: 'red',
+    message: /TEST_DATABASE_URL is empty: only a test marked medium/,
+  },
+  {
+    name: 'unknown marker is an error',
+    plant: pyPlant('test_unknown_marker.py'),
+    command: [...pyrun, 'tests/test_unknown_marker.py'],
+    expect: 'red',
+    message: /'mediun' not found in `markers` configuration option/,
+  },
+  {
+    name: 'a test cannot set its own timeout',
+    plant: pyPlant('test_own_timeout.py'),
+    command: [...pyrun, 'tests/test_own_timeout.py'],
+    expect: 'red',
+    message: /sets its own timeout; the limit is fixed by the tier/,
+  },
+  {
+    name: 'small test over 5 s fails',
+    plant: pyPlant('test_limit_small.py'),
+    command: [...pyrun, 'tests/test_limit_small.py'],
+    expect: 'red',
+    message: /Timeout \(>5\.0s\)/,
+  },
+  {
+    name: 'medium test over 15 s fails, one over 5 s passes',
+    plant: pyPlant('test_limit_medium.py'),
+    command: [...pyrun, 'tests/test_limit_medium.py'],
+    expect: 'red',
+    message: /^(?=[\s\S]*Timeout \(>15\.0s\))(?=[\s\S]*1 failed, 1 passed)/,
+  },
+  {
+    name: 'large test over 30 s fails',
+    plant: pyPlant('test_limit_large.py'),
+    command: [...pyrun, 'tests/test_limit_large.py'],
+    expect: 'red',
+    message: /Timeout \(>30\.0s\)/,
+  },
+  {
+    name: 'a hang in teardown after a failed test is stopped by the limit',
+    plant: pyPlant('test_teardown_hang.py'),
+    command: [...pyrun, 'tests/test_teardown_hang.py'],
+    expect: 'red',
+    message: /^(?=[\s\S]*Failed: Timeout \(>15\.0s\))(?=[\s\S]*1 failed, 1 error)/,
+  },
+  {
+    name: 'a quarantined test is skipped and counted, not run',
+    plant: pyPlant('test_quarantined.py'),
+    command: [...pyrun, 'tests/test_quarantined.py', '-rs'],
+    expect: 'green',
+    message: /skipped 1, quarantined 1/,
+  },
+]
+
 const gatesRun = ['pnpm', 'exec', 'test-gates']
 const withFile = (path: string, content: string) => (f: string) => {
   const file = join(f, path)
@@ -195,6 +291,28 @@ const cases: Record<string, { fixture: string; cases: Case[]; before?: (f: strin
   },
 }
 
+const gatesPyRun = ['node', '../../gates/dist/cli.js']
+cases['gates-pytest'] = {
+  fixture: pytestFixture,
+  cases: [
+    {
+      name: 'control: all three pytest tiers green against the committed floors',
+      plant: [],
+      command: [...gatesPyRun],
+      expect: 'green',
+      message: /GATE GREEN \(quarantined: 0, flaky: 0\)/,
+    },
+    {
+      name: 'a pytest tier below its floor fails the gate',
+      plant: [],
+      command: [...gatesPyRun, '--only=medium'],
+      expect: 'red',
+      message: /GATE RED: medium \(2 medium tests is below the floor of 50\)/,
+      prepare: withFile('test-floors.json', '{"small": 6, "medium": 50, "large": 1}'),
+    },
+  ],
+}
+cases.pytest = { fixture: pytestFixture, cases: pytestCases }
 cases.gates = {
   fixture: vitestFixture,
   cases: gatesCases,
