@@ -1,1 +1,3 @@
 verifyDepsBeforeRun: false
+ignoredBuiltDependencies:
+  - esbuild
