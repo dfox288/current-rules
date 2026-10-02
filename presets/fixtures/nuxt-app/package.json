@@ -5,13 +5,15 @@
   "scripts": {
     "build": "nuxt build",
     "test": "vitest",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "gates": "test-gates"
   },
   "dependencies": {
     "nuxt": "^4.5.1",
     "vue": "^3.5.0"
   },
   "devDependencies": {
+    "@dfox288/test-gates": "file:../../gates",
     "@dfox288/test-preset-vitest": "file:../../vitest",
     "@nuxt/test-utils": "^4.3.2",
     "@vue/test-utils": "^2.5.1",

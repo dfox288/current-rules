@@ -5,7 +5,7 @@
 // Needs TEST_DATABASE_URL (a Postgres the environment provides) so the DB guard is proven against a
 // database that would otherwise answer.
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -21,6 +21,8 @@ interface Case {
   /** `red`: non-zero exit and the message; `green`: exit 0 and the message */
   expect: 'red' | 'green'
   message: RegExp
+  /** sets the fixture up for the case; returns the function that puts it back */
+  prepare?: (fixture: string) => () => void
   /** extra check after the run, returns an error text or undefined */
   after?: (fixture: string) => string | undefined
 }
@@ -120,6 +122,69 @@ const vitestControl: Case = {
   after: (f) => (existsSync(join(f, '.tmp/e2e-build-ran')) ? undefined : 'the e2e build did not run'),
 }
 
+
+const gatesRun = ['pnpm', 'exec', 'test-gates']
+const withFile = (path: string, content: string) => (f: string) => {
+  const file = join(f, path)
+  const before = existsSync(file) ? readFileSync(file, 'utf8') : undefined
+  writeFileSync(file, content)
+  return () => (before === undefined ? rmSync(file, { force: true }) : writeFileSync(file, before))
+}
+
+const gatesCases: Case[] = [
+  {
+    name: 'control: all three tiers green against the committed floors',
+    plant: [],
+    command: [...gatesRun],
+    expect: 'green',
+    message: /GATE GREEN \(quarantined: 0, flaky: 0\)/,
+  },
+  {
+    name: 'a tier below its floor fails the gate',
+    plant: [],
+    command: [...gatesRun, '--only=small'],
+    expect: 'red',
+    message: /GATE RED: small \(4 small tests is below the floor of 99\)/,
+    prepare: withFile('test-floors.json', '{"small": 99, "medium": 2, "large": 2}'),
+  },
+  {
+    name: 'a tier that ran zero tests fails the gate',
+    plant: [],
+    command: [...gatesRun, '--only=medium'],
+    expect: 'red',
+    message: /GATE RED: medium \(/,
+    prepare: (f) => {
+      renameSync(join(f, 'test/unit/db.test.ts'), join(f, 'test/unit/db.test.ts.off'))
+      return () => renameSync(join(f, 'test/unit/db.test.ts.off'), join(f, 'test/unit/db.test.ts'))
+    },
+  },
+  {
+    name: 'a failing test makes the gate script exit non-zero and names the gate',
+    plant: [{ from: 'failing-small.test.ts', to: 'test/unit/failing-small.test.ts' }],
+    command: [...gatesRun, '--only=small'],
+    expect: 'red',
+    message: /GATE RED: small \(exit 1\)/,
+  },
+  {
+    name: 'a tier whose run writes no summary is NOT MEASURED, not green',
+    plant: [],
+    command: [...gatesRun, '--only=small', '--config=.tmp/no-preset.config.json'],
+    expect: 'red',
+    message: /GATE RED: small \(no run summary written: the preset did not run, so the count guard is NOT MEASURED\)/,
+    prepare: (f) => {
+      mkdirSync(join(f, '.tmp'), { recursive: true })
+      return withFile('.tmp/no-preset.config.json', '{"stack":"vitest","commands":{"small":["node","-e","process.exit(0)"]}}')(f)
+    },
+  },
+  {
+    name: 'an unknown gate name is a usage error (exit 2)',
+    plant: [],
+    command: [...gatesRun, '--only=smol'],
+    expect: 'red',
+    message: /unknown gate "smol"/,
+  },
+]
+
 const cases: Record<string, { fixture: string; cases: Case[]; before?: (f: string) => void }> = {
   vitest: {
     fixture: vitestFixture,
@@ -128,6 +193,12 @@ const cases: Record<string, { fixture: string; cases: Case[]; before?: (f: strin
       rmSync(join(f, '.tmp/e2e-build-ran'), { force: true })
     },
   },
+}
+
+cases.gates = {
+  fixture: vitestFixture,
+  cases: gatesCases,
+  before: () => {},
 }
 
 const plan = cases[stack]
@@ -141,13 +212,15 @@ for (const c of plan.cases) {
   if (only && !c.name.includes(only)) continue
   plan.before?.(plan.fixture)
   const planted: string[] = []
+  let undo: (() => void) | undefined
   try {
     for (const p of c.plant) {
       const to = join(plan.fixture, p.to)
       mkdirSync(dirname(to), { recursive: true })
-      copyFileSync(join(here, 'violations', stack, p.from), to)
+      copyFileSync(join(here, 'violations', stack === 'gates' ? 'vitest' : stack, p.from), to)
       planted.push(to)
     }
+    undo = c.prepare?.(plan.fixture)
     const [cmd, ...args] = c.command
     const r = spawnSync(cmd, args, { cwd: plan.fixture, encoding: 'utf8', env: process.env })
     const out = `${r.stdout}\n${r.stderr}`.replace(/\u001b\[[0-9;]*m/g, '')
@@ -156,7 +229,7 @@ for (const c of plan.cases) {
     const extra = c.after?.(plan.fixture)
     const ok = statusOk && matched && !extra
     if (!ok) bad++
-    const first = out.split('\n').find((l) => /Error:|\[test-preset\]|exited|failed/.test(l))
+    const first = out.split('\n').find((l) => /GATE (RED|GREEN)|Error:|\[test-preset\] (FAIL|FLAKY)|exited|test-gates:/.test(l))
     console.log(
       `${ok ? 'OK ' : 'BAD'} ${c.expect.toUpperCase().padEnd(5)} ${c.name} (exit ${r.status})` +
         (first ? `\n      ${first.trim().slice(0, 220)}` : '') +
@@ -164,6 +237,7 @@ for (const c of plan.cases) {
     )
     if (!ok && process.env.BREAK_IT_VERBOSE) console.log(out)
   } finally {
+    undo?.()
     for (const f of planted) rmSync(f, { force: true })
     rmSync(join(plan.fixture, 'planted-write.txt'), { force: true })
   }

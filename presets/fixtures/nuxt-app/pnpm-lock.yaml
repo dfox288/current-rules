@@ -15,6 +15,9 @@ importers:
         specifier: ^3.5.0
         version: 3.5.43(typescript@5.9.3)
     devDependencies:
+      '@dfox288/test-gates':
+        specifier: file:../../gates
+        version: file:../../gates
       '@dfox288/test-preset-vitest':
         specifier: file:../../vitest
         version: file:../../vitest(@nuxt/test-utils@4.3.2(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.43)(@vue/server-renderer@3.5.43)(vue@3.5.43(typescript@5.9.3)))(esbuild@0.28.2)(happy-dom@20.14.5)(magicast@0.5.5)(playwright-core@1.60.0)(rolldown@1.2.12)(rollup@4.63.6)(typescript@5.9.3)(vite@8.3.2(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2))(vitest@4.1.11(@types/node@26.6.3)(happy-dom@20.14.5)(vite@8.3.2(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2))))(playwright@1.60.0)(postgres@3.4.9)(vitest@4.1.11(@types/node@26.6.3)(happy-dom@20.14.5)(vite@8.3.2(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)))
@@ -196,6 +199,11 @@ packages:
 
   '@colordx/core@5.8.0':
     resolution: {integrity: sha512-cG0QJAO6VkaRUlIb0zOzX9gfJgs1pjoOL9gZ/PK1kfvBs0GCkADu5oQh6gPxXgQnZ3gV575h+lQRC0NlMDTclA==}
+
+  '@dfox288/test-gates@file:../../gates':
+    resolution: {directory: ../../gates, type: directory}
+    engines: {node: '>=24'}
+    hasBin: true
 
   '@dfox288/test-preset-vitest@file:../../vitest':
     resolution: {directory: ../../vitest, type: directory}
@@ -3591,6 +3599,8 @@ snapshots:
   '@cloudflare/kv-asset-handler@0.4.2': {}
 
   '@colordx/core@5.8.0': {}
+
+  '@dfox288/test-gates@file:../../gates': {}
 
   '@dfox288/test-preset-vitest@file:../../vitest(@nuxt/test-utils@4.3.2(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.43)(@vue/server-renderer@3.5.43)(vue@3.5.43(typescript@5.9.3)))(esbuild@0.28.2)(happy-dom@20.14.5)(magicast@0.5.5)(playwright-core@1.60.0)(rolldown@1.2.12)(rollup@4.63.6)(typescript@5.9.3)(vite@8.3.2(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2))(vitest@4.1.11(@types/node@26.6.3)(happy-dom@20.14.5)(vite@8.3.2(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2))))(playwright@1.60.0)(postgres@3.4.9)(vitest@4.1.11(@types/node@26.6.3)(happy-dom@20.14.5)(vite@8.3.2(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)))':
     dependencies:
