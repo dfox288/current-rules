@@ -3,7 +3,8 @@
 Every repo Current manages follows this file, in any stack, nx included. Its rules are stack-neutral; how a stack
 meets them is in that stack's binding (`bindings/<stack>.md`). A realm's `standard.md` and traits may add to this file,
 never relax it. A repo's justified differences (a different database engine, private data) are recorded in that repo's
-own trait, not here.
+own trait, not here. How the system runs the tests (when each tier runs, coverage and mutation, how repos stay on
+this file) is in `testing-system.md`, which is not part of a worker's prompt.
 
 Where a framework we use documents a scheme (names, layout, setup), the binding follows it; this file adds rules only
 where the framework says nothing (D-358).
@@ -22,17 +23,6 @@ A test's tier is set by what it may touch, not by how much code it covers.
 
 - **[contract item]** Each tier has a per-test time limit, and a test that breaks its tier's rules fails. The binding
   names the limits and which touch rules a tool enforces. *(Not enforced yet: horizon-surveyor#69; until then the reviewer checks it.)*
-
-## When each tier runs
-
-- Per change: small and medium, affected files only.
-- Before merge: small and medium in full; large for affected paths only.
-- Nightly: all three tiers in full, only if main's head or the test environment (worker image, runtime and package
-  manager versions, tool versions; not lockfile dependencies) changed since the last green full run. No run on the
-  clock alone.
-- Tag or release: a smoke test of the built artifact, plus proof that this commit passed the gate. No full re-run.
-
-Which system runs each line (Current or CI) is set by the check strategy, not here.
 
 ## What a test checks
 
@@ -97,19 +87,3 @@ Which system runs each line (Current or CI) is set by the check strategy, not he
   incident or decision, cited by issue or D-number.
 - **[contract item]** Every run states the test files and tests it ran. The gate fails a tier that ran zero tests or
   fewer than its floor. The gate raises the floor; nobody edits it by hand. *(Not enforced yet: horizon-surveyor#69; until then the reviewer checks it.)*
-
-## Coverage and mutation testing
-
-- **[rule]** Coverage is reported on request, never gated.
-- Mutation testing is a trial in the pilot repo only (changed files, before merge, score and surviving mutants to the
-  reviewer, no gate). Whether it becomes a gate is decided after the trial.
-
-## How repos stay on it
-
-- Each stack has one published preset package and one shared gate script with one set of gate names. A repo imports
-  them and adds only its project list and its justified differences. A new preset version reaches a repo as a repin. *(Not built yet for any stack: horizon-surveyor#69.)*
-- **[contract item]** The conformance script checks each repo against this file, its binding and the repo's declared
-  traits. Each item prints red, green or NOT MEASURED; a check that could not run is never green. It runs in the gate
-  before merge and on a schedule over all repos. *(Not enforced yet: horizon-surveyor#70; until then the reviewer checks it.)*
-- A new repo is set up by the conformance script's `init` mode for its stack, and its check is green before the first
-  worker job.
