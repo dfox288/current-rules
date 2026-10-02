@@ -62,11 +62,8 @@ only be judged true in aggregate across many jobs is a goal, not here — you ar
 
 ## Tests
 
-- **[rule]** A protected test is never removed, merged into another or moved to another tier by a cleanup: a
-  break-it-backed guard, security and permissions, data loss / sync / conflict handling, a regression test that names an
-  issue. Any other test is deleted or re-tiered only when the spec names it, one commit each. Availability checks
-  (survives an unwritable directory, forwards SIGTERM) are not a protected category unless they name an incident.
-  *Check: reviewer reads the diff for a deleted or moved test and compares it with the spec.*
+The testing rules for every repo are in `testing.md` at the top of this repo, plus your stack's binding in
+`bindings/`.
 
 ## Commits and issues
 
