@@ -3,7 +3,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { TestCase, TestModule } from 'vitest/node'
-import { PROJECTS, SUMMARY_ENV } from './constants.js'
+import { LIMITS, PROJECTS, SUMMARY_ENV } from './constants.js'
 
 export type Tier = 'small' | 'medium' | 'large'
 
@@ -15,6 +15,8 @@ export interface RunSummary {
   failed: number
   flaky: string[]
   retriedBeyondRules: string[]
+  /** tests that set a timeout above their tier's limit */
+  limitRaised: string[]
   tiers: Record<Tier, { files: number; tests: number }>
 }
 
@@ -33,6 +35,7 @@ export function summarize(modules: ReadonlyArray<TestModule>): RunSummary {
     failed: 0,
     flaky: [],
     retriedBeyondRules: [],
+    limitRaised: [],
     tiers: {
       small: { files: 0, tests: 0 },
       medium: { files: 0, tests: 0 },
@@ -65,6 +68,10 @@ export function summarize(modules: ReadonlyArray<TestModule>): RunSummary {
       const maxRetries = tier === 'large' ? 1 : 0
       if (retries > maxRetries)
         summary.retriedBeyondRules.push(`${label} (${tier} tier, retried ${retries}x)`)
+      // The tier's limit is fixed (pytest refuses a test's own timeout too). A test may lower it.
+      const own = test.options.timeout
+      if (typeof own === 'number' && own > LIMITS[tier])
+        summary.limitRaised.push(`${label} (${tier} tier, ${own} ms > ${LIMITS[tier]} ms)`)
       if (state === 'passed' && test.diagnostic()?.flaky) summary.flaky.push(label)
     }
   }
@@ -87,6 +94,10 @@ export const testPresetReporter = {
       process.stdout.write(`[test-preset] FLAKY (passed on retry, not a clean pass): ${label}\n`)
     for (const label of s.retriedBeyondRules) {
       process.stdout.write(`[test-preset] FAIL: retry beyond the baseline's rules: ${label}\n`)
+      process.exitCode = 1
+    }
+    for (const label of s.limitRaised) {
+      process.stdout.write(`[test-preset] FAIL: sets its own timeout above the tier's limit: ${label}\n`)
       process.exitCode = 1
     }
     const path = process.env[SUMMARY_ENV]

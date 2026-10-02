@@ -1,0 +1,67 @@
+name: presets
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  presets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: preset
+          POSTGRES_DB: preset_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:preset@localhost:5432/preset_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12.8.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: '3.14'
+
+      - name: Install the TypeScript packages
+        run: |
+          pnpm -C presets/vitest install --frozen-lockfile
+          pnpm -C presets/gates install --frozen-lockfile
+
+      - name: dist is fresh (vitest)
+        run: pnpm -C presets/vitest check:dist
+      - name: dist is fresh (gates)
+        run: pnpm -C presets/gates check:dist
+      - name: Gate script unit tests
+        run: pnpm -C presets/gates test
+
+      - name: Install the fixtures
+        run: |
+          pnpm -C presets/fixtures/nuxt-app install --frozen-lockfile
+          pnpm -C presets/fixtures/nuxt-app exec playwright install --with-deps chromium
+          uv sync --project presets/fixtures/python-pkg --group test --frozen
+
+      - name: Break-it, Vitest preset
+        run: node presets/fixtures/break-it.ts vitest
+      - name: Break-it, pytest preset
+        run: node presets/fixtures/break-it.ts pytest
+      - name: Break-it, gate script on the Nuxt fixture
+        run: node presets/fixtures/break-it.ts gates
+      - name: Break-it, gate script on the Python fixture
+        run: node presets/fixtures/break-it.ts gates-pytest

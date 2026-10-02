@@ -46,6 +46,20 @@ const vitestCases: Case[] = [
     message: /\|nuxt\|[\s\S]*tests of the small tier never touch the network \(fetch http:\/\/203\.0\.113\.1\/\)/,
   },
   {
+    name: 'a test cannot raise its tier limit (small and medium)',
+    plant: [{ from: 'timeout-override.test.ts', to: 'test/unit/timeout-override.test.ts' }],
+    command: [...run, 'test/unit/timeout-override.test.ts'],
+    expect: 'red',
+    message: /^(?=[\s\S]*FAIL: sets its own timeout above the tier's limit: .*raises its own limit above small \(small tier, 60000 ms > 5000 ms\))(?=[\s\S]*raises its own limit above medium \(medium tier, 60000 ms > 15000 ms\))(?![\s\S]*lowers its own limit \(allowed\) \()/,
+  },
+  {
+    name: 'small test sends a UDP datagram',
+    plant: [{ from: 'small-udp.test.ts', to: 'test/unit/small-udp.test.ts' }],
+    command: [...run, 'test/unit/small-udp.test.ts'],
+    expect: 'red',
+    message: /tests of the small tier never touch the network \(udp send 203\.0\.113\.1:53\)/,
+  },
+  {
     name: 'small test writes outside its temp dir',
     plant: [{ from: 'small-write.test.ts', to: 'test/unit/small-write.test.ts' }],
     command: [...run, 'test/unit/small-write.test.ts'],
@@ -160,6 +174,29 @@ const pytestCases: Case[] = [
       left.forEach((n) => rmSync(join(f, n), { recursive: true, force: true }))
       return left.length ? `written anyway: ${left.join(', ')}` : undefined
     },
+  },
+  {
+    name: 'tempfile idioms are a small test\'s own temp files',
+    plant: pyPlant('test_tempfile_idioms.py'),
+    command: [...pyrun, 'tests/test_tempfile_idioms.py'],
+    expect: 'green',
+    message: /4 passed/,
+  },
+  {
+    name: 'the tier is the marker, not a directory name',
+    plant: [{ from: 'test_dirname.py', to: 'tests/large/test_dirname.py' }],
+    command: [...pyrun, 'tests/large/test_dirname.py'],
+    expect: 'green',
+    message: /ran 1 files, 1 tests \(small 1, medium 0, large 0\)/,
+    after: (f) => (rmSync(join(f, 'tests/large'), { recursive: true, force: true }), undefined),
+  },
+  {
+    name: 'threads and executors are under small\'s guards',
+    plant: pyPlant('test_small_threads.py'),
+    command: [...pyrun, 'tests/test_small_threads.py'],
+    expect: 'red',
+    message: /^(?=[\s\S]*write only inside their tmp_path[\s\S]*write only inside their tmp_path)(?=[\s\S]*SocketBlockedError)(?=[\s\S]*3 failed)/,
+    after: (f) => (existsSync(join(f, 'planted-write.txt')) ? (rmSync(join(f, 'planted-write.txt')), 'written anyway') : undefined),
   },
   {
     name: 'small test asks for the database',

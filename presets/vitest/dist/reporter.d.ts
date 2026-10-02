@@ -8,6 +8,8 @@ export interface RunSummary {
     failed: number;
     flaky: string[];
     retriedBeyondRules: string[];
+    /** tests that set a timeout above their tier's limit */
+    limitRaised: string[];
     tiers: Record<Tier, {
         files: number;
         tests: number;

@@ -74,9 +74,33 @@ takes the repo's `connect(url)` (a DB-API connection) and gives a schema that is
 zero tests and one whose run wrote no summary (the preset did not run) are red; `--raise-floors` raises the floors
 after a green run and never lowers them. The last line is `GATE GREEN (...)` or `GATE RED: <gate (reason)>, ...`.
 
+## What the guards do not catch
+
+Small's guards stop the usual ways to reach the network, a file or the database from test code. A reviewer reading a
+small test still checks for these (ruling 25 leaves process starts and sleeps to review):
+
+- **Both stacks:** child processes (`execSync`, `subprocess`, `multiprocessing`: their network and writes are not
+  seen); sleeps; booting a server or container; a write through a file descriptor opened before the test; a symlink
+  that points out of the temp dir; a test that changes its own limit at runtime (`vi.setConfig`); DNS lookups made by
+  the resolver library rather than a socket (`dns.resolve*`).
+- **Vitest only:** code in a `worker_threads` Worker (the setup file does not run there, so network and writes in a
+  worker are not guarded); `listen` is not guarded. UDP (`dgram` `send`/`connect`) is guarded.
+- **pytest only:** `from socket import socket` executed before the plugin loads keeps the real class (a pytest-socket
+  limit); writes made by C libraries other than `sqlite3`; a `SocketBlockedError` that the code under test swallows
+  only becomes a warning. Threads, executors and `asyncio.to_thread` are guarded (the write guard is process-wide and
+  pytest-socket patches `socket` globally).
+- A test may lower its limit; raising it (`{ timeout }` in Vitest, `@pytest.mark.timeout`) fails the run.
+
+## Pinned versions
+
+The Vitest preset's reporter uses two members that Vitest does not type (`onAfterSetServer`, `reporters`), so its
+peer `vitest` is an exact version (a repin moves it, the break-its prove the hooks still work). The pytest plugin
+uses private members of pytest, pytest-timeout and `tempfile`; those are pinned the same way, and Python is 3.14.
+
 ## Proof
 
-`fixtures/break-it.ts` plants each violation and checks the run is red for the stated reason:
+`.github/workflows/presets.yml` runs `check:dist`, the gate script's unit tests and the four break-it runs on every pull
+request and push to main. `fixtures/break-it.ts` plants each violation and checks the run is red for the stated reason:
 
 ```
 TEST_DATABASE_URL=postgres://... node presets/fixtures/break-it.ts <vitest|pytest|gates|gates-pytest> [filter]

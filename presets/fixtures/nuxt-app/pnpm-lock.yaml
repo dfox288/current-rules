@@ -40,7 +40,7 @@ importers:
         specifier: ~5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^4.1.10
+        specifier: 4.1.11
         version: 4.1.11(@types/node@26.6.3)(happy-dom@20.14.5)(vite@8.3.2(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2))
 
 packages:
@@ -212,7 +212,7 @@ packages:
       '@nuxt/test-utils': ^4.3.2
       playwright: 1.60.0
       postgres: 3.4.9
-      vitest: ^4.1.10
+      vitest: 4.1.11
     peerDependenciesMeta:
       '@nuxt/test-utils':
         optional: true

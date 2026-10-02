@@ -23,6 +23,8 @@ MARKERS = {
 LOOPBACK = ["127.0.0.1", "::1", "localhost"]
 
 _summary = Summary()
+# nodeid -> (tier, quarantined), from the markers at collection: a directory called `large` makes nothing large.
+_tiers: dict[str, tuple[str, bool]] = {}
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -50,6 +52,7 @@ def _markers(item: pytest.Item) -> set[str]:
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     for item in items:
         marks = _markers(item)
+        _tiers[item.nodeid] = (tier_of(marks), "quarantine" in marks)
         if "timeout" in marks:
             raise pytest.UsageError(
                 f"{item.nodeid} sets its own timeout; the limit is fixed by the tier "
@@ -126,14 +129,14 @@ def pytest_exception_interact(node: pytest.Item, call: pytest.CallInfo) -> None:
 
 
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
-    marks = {k for k in getattr(report, "keywords", {})}
+    tier, quarantined = _tiers.get(report.nodeid, ("small", False))
     if report.when == "call" or (report.when == "setup" and report.outcome in ("failed", "skipped")):
         if report.skipped:
             _summary.skipped += 1
-            if "quarantine" in marks:
+            if quarantined:
                 _summary.quarantined += 1
             return
-        _summary.add_ran(report.nodeid, tier_of(marks), report.failed)
+        _summary.add_ran(report.nodeid, tier, report.failed)
     elif report.when == "teardown" and report.failed:
         _summary.failed += 1
 

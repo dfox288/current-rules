@@ -5,6 +5,7 @@
 // - `TEST_DATABASE_URL` is empty, so the DB helper throws (a `medium` test gets the real value).
 // Sleep and server boot are not guarded: the reviewer checks them.
 // A guard is only active inside a test (beforeEach to afterEach), never while modules load.
+import dgram from 'node:dgram'
 import fs from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
 import net from 'node:net'
@@ -83,6 +84,26 @@ net.Socket.prototype.connect = function (this: net.Socket, ...args: unknown[]) {
   }
   return (realConnect as (...a: unknown[]) => net.Socket).apply(this, args)
 } as typeof net.Socket.prototype.connect
+
+// UDP: `send` and `connect` of a datagram socket (`bind` and `listen` alike are boot, not reach).
+function guardDgram(name: 'send' | 'connect') {
+  const original = dgram.Socket.prototype[name] as (...a: unknown[]) => unknown
+  ;(dgram.Socket.prototype as unknown as Record<string, unknown>)[name] = function (
+    this: dgram.Socket,
+    ...args: unknown[]
+  ) {
+    if (mode !== 'off') {
+      // send(msg, [offset, length,] port, [address], [cb]) and connect(port, [address], [cb])
+      const params = args.filter((a) => typeof a !== 'function').slice(name === 'send' ? 1 : 0)
+      const address = params.find((a): a is string => typeof a === 'string')
+      const port = [...params].reverse().find((a) => typeof a === 'number')
+      if (!allowedHost(address ?? 'localhost')) refuse(`udp ${name} ${address ?? 'localhost'}:${port}`)
+    }
+    return original.apply(this, args)
+  }
+}
+guardDgram('send')
+guardDgram('connect')
 
 // ---- files ----
 const tmpRoots = (() => {

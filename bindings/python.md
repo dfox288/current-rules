@@ -19,7 +19,7 @@ reviewer checks them.)*
 - **[contract item]** pytest's documented layout: the code in `src/<package>/`, tests in `tests/`, configuration in
   `pyproject.toml` (`[tool.pytest]`), `--import-mode=importlib`.
 - **[contract item]** Tiers are pytest markers: an unmarked test is small; `@pytest.mark.medium` marks a test that
-  touches a database, files outside `tmp_path`, or a subprocess; `@pytest.mark.large` marks one that runs several
+  touches a database, files outside its own temp dir, or a subprocess; `@pytest.mark.large` marks one that runs several
   processes or a built app. `--strict-markers` makes an unknown marker an error.
 - **[contract item]** `@pytest.mark.quarantine` marks a flaky test: it is skipped and counted in the run line and the
   gate's summary.
@@ -39,8 +39,8 @@ The preset sets:
 - **Time limits per test** (`pytest-timeout`): small 5 s, `medium` 15 s, `large` 30 s.
 - **Retries:** none; no rerun plugin (a rerun plugin in the environment is a usage error).
 - **`TZ=UTC`.**
-- **Small's guards:** sockets are blocked (`pytest-socket`); a write outside the test's `tmp_path` fails it;
-  `TEST_DATABASE_URL` is empty unless the test is marked `medium`, so the DB helper raises. Sleep and process starts
+- **Small's guards:** sockets are blocked (`pytest-socket`); a write outside its own temp dir (`tmp_path`, or one it created through `tempfile`) fails it;
+  `TEST_DATABASE_URL` is empty unless the test is marked `medium` or `large`, so the DB helper raises. Sleep and process starts
   are not guarded; the reviewer checks them.
 - **The count guard:** every run states the files and tests it ran; a tier below its floor fails.
 

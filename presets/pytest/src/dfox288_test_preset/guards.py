@@ -11,7 +11,6 @@ import os
 import sqlite3
 import sys
 import tempfile
-import threading
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -42,15 +41,15 @@ class SmallTierViolation(Exception):
     that catches OSError must not swallow it. The plugin fails the test for it even if it is swallowed."""
 
 
-class _State(threading.local):
-    active = False
-    allowed: list[str]
-    violations: list[str]
-    in_tempfile = 0
+class _State:
+    """Process-wide, not thread-local: a thread, an executor or `asyncio.to_thread` started by the test is
+    under the same guard (one test runs at a time per process)."""
 
     def __init__(self) -> None:
-        self.allowed = []
-        self.violations = []
+        self.active = False
+        self.allowed: list[str] = []
+        self.violations: list[str] = []
+        self.in_tempfile = 0
 
 
 state = _State()
@@ -97,8 +96,12 @@ def _check(event: str, path: object, dir_fd: object = None) -> None:
     resolved = _resolve(path, dir_fd)
     if resolved is None or _inside(resolved):
         return
-    if state.in_tempfile and resolved.startswith(os.path.realpath(tempfile.gettempdir()) + os.sep):
-        return  # tempfile creating its own entry: allowed, and remembered by the wrapper
+    if state.in_tempfile:
+        # tempfile creating its own entry (it also opens the temp dir itself, O_DIRECTORY or O_TMPFILE):
+        # allowed, and the new path is remembered by the wrapper below.
+        root = os.path.realpath(tempfile.gettempdir())
+        if resolved == root or resolved.startswith(root + os.sep):
+            return
     message = (
         f"tests of the small tier write only inside their tmp_path or a tempfile they made "
         f"({event} {resolved}); use tmp_path or mark the test medium"
@@ -156,6 +159,21 @@ def _wrap_tempfile() -> None:
             _remember(path)
         return fd, path
 
+    def counted(real):  # noqa: ANN001, ANN202
+        def wrapper(*args, **kwargs):  # noqa: ANN002, ANN003
+            state.in_tempfile += 1
+            try:
+                return real(*args, **kwargs)
+            finally:
+                state.in_tempfile -= 1
+
+        wrapper.__name__ = real.__name__
+        wrapper.__doc__ = real.__doc__
+        return wrapper
+
+    # TemporaryFile opens the temp dir itself (O_TMPFILE) without going through mkstemp.
+    tempfile.TemporaryFile = counted(tempfile.TemporaryFile)
+    tempfile.NamedTemporaryFile = counted(tempfile.NamedTemporaryFile)
     tempfile.mkdtemp = mkdtemp
     tempfile._mkstemp_inner = mkstemp_inner  # type: ignore[attr-defined]
 
