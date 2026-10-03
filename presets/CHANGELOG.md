@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- gate script, both presets: the gate summary reports the protected count per tier, one stable line per tier
+  (`small: 437 tests, 41 protected`). The presets write `protected` per tier into the run summary (pytest: the
+  `protected` mark on a test, its class or its module; Vitest: the `protected` tag, also inherited from a `describe`),
+  so the count comes from the tier's own run. Reported only; floors are unchanged. A summary from an older preset
+  prints `protected not reported`. A repo gets it by repinning both the preset and the gate script to the next tag.
+  (horizon-surveyor#113)
+
 ## 0.1.2 (2026-10-03)
 
 - vitest preset: the fetch guard resolves a relative URL against `globalThis.location` when there is one, then judges

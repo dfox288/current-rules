@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { judgeTier, raiseFloors, tierCommand, type GateResult, type RunSummary } from './gates.ts'
+import { judgeTier, protectedLines, raiseFloors, tierCommand, type GateResult, type RunSummary } from './gates.ts'
 
 const summary = (small: number, medium = 0, large = 0): RunSummary => ({
   files: 1,
@@ -58,4 +58,41 @@ test('tier selection per stack', () => {
   assert.deepEqual(tierCommand({ stack: 'vitest' }, 'large').slice(-2), ['--project', 'e2e'])
   assert.deepEqual(tierCommand({ stack: 'pytest' }, 'medium').slice(-2), ['-m', 'medium'])
   assert.deepEqual(tierCommand({ stack: 'pytest' }, 'small').slice(-2), ['-m', 'not medium and not large'])
+})
+
+const withProtected = (small: number, protectedSmall?: number): RunSummary => {
+  const s = summary(small)
+  if (protectedSmall !== undefined) s.tiers.small.protected = protectedSmall
+  return s
+}
+const tierResult = (name: 'small' | 'medium' | 'large', s: RunSummary): GateResult => ({
+  name,
+  status: 'ok',
+  seconds: 0,
+  detail: '',
+  summary: s,
+})
+
+test('the protected count is one stable line per tier', () => {
+  assert.deepEqual(protectedLines([tierResult('small', withProtected(437, 41))]), ['small: 437 tests, 41 protected'])
+})
+
+test('a tier with no protected tests says 0, the line is still there', () => {
+  assert.deepEqual(protectedLines([tierResult('small', withProtected(5, 0))]), ['small: 5 tests, 0 protected'])
+})
+
+test('a summary from a preset that does not count says so, never 0', () => {
+  assert.deepEqual(protectedLines([tierResult('small', withProtected(5))]), [
+    'small: 5 tests, protected not reported (preset older than 0.1.3)',
+  ])
+})
+
+test('a skipped tier and a failed gate without a summary have no line', () => {
+  const skipped: GateResult = { name: 'large', status: 'skipped', seconds: 0, detail: '' }
+  const lint: GateResult = { name: 'lint', status: 'ok', seconds: 0, detail: '', summary: withProtected(1, 1) }
+  assert.deepEqual(protectedLines([skipped, lint]), [])
+})
+
+test('floors do not depend on the protected count', () => {
+  assert.equal(judgeTier('small', 0, withProtected(4, 0), { small: 4 }).failure, undefined)
 })

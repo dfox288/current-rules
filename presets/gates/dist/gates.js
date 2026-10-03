@@ -51,6 +51,23 @@ export function judgeTier(tier, exitCode, summary, floors) {
         return { failure: `${t.tests} ${tier} tests is below the floor of ${floor}`, detail };
     return { detail };
 }
+/**
+ * The protected count, one line per tier that ran: `<tier>: <tests> tests, <n> protected`. The numbers come from
+ * the summary of the tier's own run (the tests it ran, tagged or marked `protected`), not from a second command.
+ * Reported, never gated.
+ */
+export function protectedLines(results) {
+    const lines = [];
+    for (const r of results) {
+        if (!TIERS.includes(r.name) || !r.summary)
+            continue;
+        const t = r.summary.tiers[r.name];
+        lines.push(t.protected === undefined
+            ? `${r.name}: ${t.tests} tests, protected not reported (preset older than 0.1.3)`
+            : `${r.name}: ${t.tests} tests, ${t.protected} protected`);
+    }
+    return lines;
+}
 function runCommand(argv, cwd, logPath, env) {
     mkdirSync(join(cwd, '.tmp', 'gates'), { recursive: true });
     const log = createWriteStream(logPath);
@@ -133,6 +150,8 @@ export async function runGates(root, config, options = {}) {
         const label = r.status === 'ok' ? 'OK' : r.status === 'failed' ? 'FAILED' : 'skipped';
         console.log(`  ${r.name.padEnd(10)} ${label.padEnd(8)} ${String(r.seconds).padStart(4)}s  ${r.detail}`);
     }
+    for (const line of protectedLines(results))
+        console.log(`  ${line}`);
     for (const r of results)
         for (const label of r.summary?.flaky ?? [])
             console.log(`  FLAKY (passed on retry): ${label}`);

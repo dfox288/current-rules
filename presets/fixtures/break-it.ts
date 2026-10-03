@@ -346,6 +346,20 @@ const gatesCases: Case[] = [
     },
   },
   {
+    name: 'protected count: direct tag and a tagged group are counted, an untagged test is not',
+    plant: [{ from: 'protected-kinds.test.ts', to: 'test/unit/protected-kinds.test.ts' }],
+    command: [...gatesRun, '--only=small'],
+    expect: 'green',
+    message: /^(?=[\s\S]*^ {2}small: 8 tests, 4 protected$)/m,
+  },
+  {
+    name: 'protected count: a tier with none says 0, the line is there',
+    plant: [],
+    command: [...gatesRun, '--only=large'],
+    expect: 'green',
+    message: /^ {2}large: 2 tests, 0 protected$/m,
+  },
+  {
     name: 'an unknown gate name is a usage error (exit 2)',
     plant: [],
     command: [...gatesRun, '--only=smol'],
@@ -374,6 +388,23 @@ cases['gates-pytest'] = {
       command: [...gatesPyRun],
       expect: 'green',
       message: /GATE GREEN \(quarantined: 0, flaky: 0\)/,
+    },
+    {
+      name: 'protected count: direct, class and module marks are counted, an unmarked test is not',
+      plant: [
+        { from: 'test_protected_kinds.py', to: 'tests/test_protected_kinds.py' },
+        { from: 'test_protected_module.py', to: 'tests/test_protected_module.py' },
+      ],
+      command: [...gatesPyRun, '--only=small'],
+      expect: 'green',
+      message: /^ {2}small: 12 tests, 6 protected$/m,
+    },
+    {
+      name: 'protected count: a tier with none says 0, the line is there',
+      plant: [],
+      command: [...gatesPyRun, '--only=large'],
+      expect: 'green',
+      message: /^ {2}large: 1 tests, 0 protected$/m,
     },
     {
       name: 'a pytest tier below its floor fails the gate',
@@ -408,7 +439,7 @@ for (const c of plan.cases) {
     for (const p of c.plant) {
       const to = join(plan.fixture, p.to)
       mkdirSync(dirname(to), { recursive: true })
-      copyFileSync(join(here, 'violations', stack === 'gates' ? 'vitest' : stack, p.from), to)
+      copyFileSync(join(here, 'violations', stack === 'gates' ? 'vitest' : stack === 'gates-pytest' ? 'pytest' : stack, p.from), to)
       planted.push(to)
     }
     undo = c.prepare?.(plan.fixture)

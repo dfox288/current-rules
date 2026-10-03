@@ -74,6 +74,21 @@ takes the repo's `connect(url)` (a DB-API connection) and gives a schema that is
 zero tests and one whose run wrote no summary (the preset did not run) are red; `--raise-floors` raises the floors
 after a green run and never lowers them. The last line is `GATE GREEN (...)` or `GATE RED: <gate (reason)>, ...`.
 
+The gate summary also reports the protected count, one line per tier that ran, right after the gate table:
+
+```
+  small: 437 tests, 41 protected
+  medium: 12 tests, 0 protected
+```
+
+The format is `<tier>: <n> tests, <m> protected` (grep `^  <tier>: [0-9]+ tests, [0-9]+ protected$`). `n` is the count the
+floor guards; `m` is how many of those tests carry `protected`: pytest `@pytest.mark.protected` on the test, its class
+or its module (`pytestmark`), Vitest the `protected` tag on the test or on a `describe` around it. The count comes
+from the run of the tier itself (the preset writes it into the run summary next to the tier's test count), so it
+needs no second command and no database beyond what the tier's run already has; it counts tests that ran, so a
+quarantined `protected` test is not in it. A tier with none says `0`. A preset older than 0.1.3 writes no count and
+the line says `protected not reported`, never `0`. The count is reported, not gated: floors are unchanged.
+
 ## What the guards do not catch
 
 Small's guards stop the usual ways to reach the network, a file or the database from test code. A reviewer reading a

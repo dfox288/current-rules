@@ -13,6 +13,7 @@ export interface RunSummary {
     tiers: Record<Tier, {
         files: number;
         tests: number;
+        protected: number;
     }>;
 }
 /** `unit` and `nuxt` are small, a test there with the `medium` tag is medium, `e2e` is large. */
