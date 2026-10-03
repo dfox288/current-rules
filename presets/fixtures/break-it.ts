@@ -68,6 +68,13 @@ const vitestCases: Case[] = [
     after: (f) => (existsSync(join(f, 'planted-write.txt')) ? 'the file was written anyway' : undefined),
   },
   {
+    name: 'a relative fetch URL is judged against location; absolute non-loopback and small stay refused',
+    plant: [{ from: 'relative-fetch.test.ts', to: 'test/unit/relative-fetch.test.ts' }],
+    command: [...run, 'test/unit/relative-fetch.test.ts'],
+    expect: 'green',
+    message: /Tests\s+5 passed \(5\)/,
+  },
+  {
     name: 'small test asks for the database',
     plant: [{ from: 'small-db.test.ts', to: 'test/unit/small-db.test.ts' }],
     command: [...run, 'test/unit/small-db.test.ts'],
@@ -144,6 +151,13 @@ const vitestControl: Case = {
 }
 
 
+const withFile = (path: string, content: string) => (f: string) => {
+  const file = join(f, path)
+  const before = existsSync(file) ? readFileSync(file, 'utf8') : undefined
+  writeFileSync(file, content)
+  return () => (before === undefined ? rmSync(file, { force: true }) : writeFileSync(file, before))
+}
+
 const pytestFixture = join(here, 'python-pkg')
 const pyrun = ['uv', 'run', '--group', 'test', 'pytest', '-p', 'no:cacheprovider']
 const pyPlant = (file: string) => [{ from: file, to: `tests/${file}` }]
@@ -189,6 +203,19 @@ const pytestCases: Case[] = [
       left.forEach((n) => rmSync(join(f, n), { recursive: true, force: true }))
       rmSync(join(f, 'tests/__pycache__/_bytecode_probe.cpython-314.pyc'), { force: true })
       return left.length ? `written anyway: ${left.join(', ')}` : undefined
+    },
+  },
+  {
+    name: 'removing a link inside tmp_path is allowed, a plain file or a write through a link outside is not',
+    plant: pyPlant('test_small_symlink.py'),
+    command: [...pyrun, 'tests/test_small_symlink.py'],
+    expect: 'red',
+    message: /^(?=[\s\S]*\(os\.remove [^)]*planted-victim\.txt\))(?=[\s\S]*\(open [^)]*planted-outside\.txt\))(?=[\s\S]*2 failed, 1 passed)/,
+    prepare: withFile('planted-victim.txt', 'x'),
+    after: (f) => {
+      const left = ['planted-victim.txt', 'planted-outside.txt'].filter((n) => existsSync(join(f, n)))
+      left.forEach((n) => rmSync(join(f, n), { force: true }))
+      return left.includes('planted-outside.txt') ? 'written anyway: planted-outside.txt' : undefined
     },
   },
   {
@@ -273,13 +300,6 @@ const pytestCases: Case[] = [
 ]
 
 const gatesRun = ['pnpm', 'exec', 'test-gates']
-const withFile = (path: string, content: string) => (f: string) => {
-  const file = join(f, path)
-  const before = existsSync(file) ? readFileSync(file, 'utf8') : undefined
-  writeFileSync(file, content)
-  return () => (before === undefined ? rmSync(file, { force: true }) : writeFileSync(file, before))
-}
-
 const gatesCases: Case[] = [
   {
     name: 'control: all three tiers green against the committed floors',
