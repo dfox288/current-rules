@@ -30,6 +30,8 @@ A test's tier is set by what it may touch, not by how much code it covers.
   function returns. Not how the code gets there: a refactor that keeps behaviour must not break a test.
 - **[rule]** No whole-tree snapshots. Assert the specific thing.
 - **[rule]** No test reads source as text. A check on source (a forbidden pattern, a design-system rule) is a lint rule.
+  Config files (workflows, `checks.map.yml`, Dockerfiles) are checked by tests that parse them, not by matching their
+  text; a test that runs a step's extracted shell is a behaviour test.
 - **[rule]** Every test asserts an outcome (a return value, rendered text, an emitted event). A test that only runs
   code is rejected.
 - **[rule]** Expected values come from the spec or the issue, never from calling the code under test.
@@ -88,4 +90,6 @@ A test's tier is set by what it may touch, not by how much code it covers.
   behind it. No D-numbers, audit sections or other internal references in test code: nobody outside can resolve
   them.
 - **[contract item]** Every run states the test files and tests it ran. The gate fails a tier that ran zero tests or
-  fewer than its floor. The gate raises the floor; nobody edits it by hand.
+  fewer than its floor. The gate raises the floor; nobody raises it by hand. A change whose spec names tests to delete,
+  merge or move to another tier lowers that tier's floor by exactly that many, in the same commit, and its report states
+  the old and new floor.
