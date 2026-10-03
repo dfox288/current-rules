@@ -30,9 +30,11 @@ export interface RunSummary {
     failed: number;
     flaky: string[];
     retriedBeyondRules: string[];
+    /** `protected` is absent in a summary written by a preset older than 0.1.3. */
     tiers: Record<Tier, {
         files: number;
         tests: number;
+        protected?: number;
     }>;
 }
 export type Floors = Partial<Record<Tier, number>>;
@@ -53,6 +55,12 @@ export declare function judgeTier(tier: Tier, exitCode: number, summary: RunSumm
     failure?: string;
     detail: string;
 };
+/**
+ * The protected count, one line per tier that ran: `<tier>: <tests> tests, <n> protected`. The numbers come from
+ * the summary of the tier's own run (the tests it ran, tagged or marked `protected`), not from a second command.
+ * Reported, never gated.
+ */
+export declare function protectedLines(results: GateResult[]): string[];
 export interface RunOptions {
     only?: GateName[];
     raiseFloors?: boolean;

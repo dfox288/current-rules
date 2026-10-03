@@ -20,9 +20,9 @@ export function summarize(modules) {
         retriedBeyondRules: [],
         limitRaised: [],
         tiers: {
-            small: { files: 0, tests: 0 },
-            medium: { files: 0, tests: 0 },
-            large: { files: 0, tests: 0 },
+            small: { files: 0, tests: 0, protected: 0 },
+            medium: { files: 0, tests: 0, protected: 0 },
+            large: { files: 0, tests: 0, protected: 0 },
         },
     };
     const filesPerTier = {
@@ -46,6 +46,8 @@ export function summarize(modules) {
             const tier = tierOf(test.project.name, test.tags);
             summary.tests++;
             summary.tiers[tier].tests++;
+            if (test.tags.includes('protected'))
+                summary.tiers[tier].protected++;
             files.add(module.moduleId);
             filesPerTier[tier].add(module.moduleId);
             if (state === 'failed')

@@ -17,7 +17,7 @@ export interface RunSummary {
   retriedBeyondRules: string[]
   /** tests that set a timeout above their tier's limit */
   limitRaised: string[]
-  tiers: Record<Tier, { files: number; tests: number }>
+  tiers: Record<Tier, { files: number; tests: number; protected: number }>
 }
 
 /** `unit` and `nuxt` are small, a test there with the `medium` tag is medium, `e2e` is large. */
@@ -37,9 +37,9 @@ export function summarize(modules: ReadonlyArray<TestModule>): RunSummary {
     retriedBeyondRules: [],
     limitRaised: [],
     tiers: {
-      small: { files: 0, tests: 0 },
-      medium: { files: 0, tests: 0 },
-      large: { files: 0, tests: 0 },
+      small: { files: 0, tests: 0, protected: 0 },
+      medium: { files: 0, tests: 0, protected: 0 },
+      large: { files: 0, tests: 0, protected: 0 },
     },
   }
   const filesPerTier: Record<Tier, Set<string>> = {
@@ -61,6 +61,7 @@ export function summarize(modules: ReadonlyArray<TestModule>): RunSummary {
       const tier = tierOf(test.project.name, test.tags)
       summary.tests++
       summary.tiers[tier].tests++
+      if (test.tags.includes('protected')) summary.tiers[tier].protected++
       files.add(module.moduleId)
       filesPerTier[tier].add(module.moduleId)
       if (state === 'failed') summary.failed++

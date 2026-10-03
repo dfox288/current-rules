@@ -20,18 +20,20 @@ def tier_of(markers: set[str]) -> str:
 class Summary:
     files: set[str] = field(default_factory=set)
     tiers: dict[str, dict[str, set[str] | int]] = field(
-        default_factory=lambda: {t: {"files": set(), "tests": 0} for t in ("small", "medium", "large")}
+        default_factory=lambda: {t: {"files": set(), "tests": 0, "protected": 0} for t in ("small", "medium", "large")}
     )
     tests: int = 0
     skipped: int = 0
     quarantined: int = 0
     failed: int = 0
 
-    def add_ran(self, nodeid: str, tier: str, failed: bool) -> None:
+    def add_ran(self, nodeid: str, tier: str, failed: bool, protected: bool = False) -> None:
         file = nodeid.split("::", 1)[0]
         self.files.add(file)
         self.tiers[tier]["files"].add(file)  # type: ignore[union-attr]
         self.tiers[tier]["tests"] += 1  # type: ignore[operator]
+        if protected:
+            self.tiers[tier]["protected"] += 1  # type: ignore[operator]
         self.tests += 1
         if failed:
             self.failed += 1
@@ -46,7 +48,7 @@ class Summary:
             "flaky": [],  # no retries in pytest: a test is never flaky here
             "retriedBeyondRules": [],
             "tiers": {
-                t: {"files": len(v["files"]), "tests": v["tests"]}  # type: ignore[arg-type]
+                t: {"files": len(v["files"]), "tests": v["tests"], "protected": v["protected"]}  # type: ignore[arg-type]
                 for t, v in self.tiers.items()
             },
         }
