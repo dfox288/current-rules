@@ -35,6 +35,9 @@ WRITE_EVENTS: dict[str, tuple[tuple[int, int | None], ...]] = {
     "shutil.rmtree": ((0, 1),),
 }
 
+# events that act on the path itself even when it is a symlink (`os.unlink` raises `os.remove`)
+UNLINK_EVENTS = frozenset({"os.remove"})
+
 # importlib's `_write_atomic` opens `<name>.pyc.<id(path)>`, then `os.replace`s it onto `<name>.pyc`
 _BYTECODE_NAME = re.compile(r"[^/\\]+\.pyc(\.\d+)?")
 
@@ -76,7 +79,7 @@ def _path_of_fd(fd: int) -> str | None:
         return None
 
 
-def _resolve(path: object, dir_fd: object = None) -> str | None:
+def _resolve(path: object, dir_fd: object = None, follow: bool = True) -> str | None:
     if isinstance(path, int):
         return None  # a file descriptor: checked when it was opened
     try:
@@ -88,6 +91,10 @@ def _resolve(path: object, dir_fd: object = None) -> str | None:
         if base is None:
             return None  # relative to a directory we can't locate: not judged
         text = os.path.join(base, text)
+    if not follow:
+        # removing a link removes the link: its parent is resolved, the last component is not followed
+        directory, name = os.path.split(text)
+        return os.path.join(os.path.realpath(directory or "."), name)
     return os.path.realpath(text)
 
 
@@ -103,7 +110,7 @@ def _inside(path: str) -> bool:
 
 
 def _check(event: str, path: object, dir_fd: object = None) -> None:
-    resolved = _resolve(path, dir_fd)
+    resolved = _resolve(path, dir_fd, follow=event not in UNLINK_EVENTS)
     if resolved is None or _inside(resolved):
         return
     if state.in_tempfile:

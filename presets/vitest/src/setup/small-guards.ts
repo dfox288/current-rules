@@ -51,7 +51,9 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const raw = input instanceof Request ? input.url : String(input)
     let host: string | undefined
     try {
-      const url = new URL(raw)
+      // a relative URL is judged against the page's own origin; without one it stays refused
+      const base = (globalThis as { location?: { href?: string } }).location?.href
+      const url = new URL(raw, base)
       if (url.protocol === 'data:' || url.protocol === 'blob:') return realFetch(input, init)
       host = url.hostname
     } catch {

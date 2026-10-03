@@ -22,7 +22,7 @@ wheels = [
 
 [[package]]
 name = "dfox288-test-preset"
-version = "0.1.0"
+version = "0.1.2"
 source = { directory = "../../pytest" }
 dependencies = [
     { name = "pytest" },

@@ -13,15 +13,15 @@ its justified differences.
 
 ## Install
 
-Tag `presets-v0.1.1`. Syntax checked against the docs (pnpm: "Install from a
+Tag `presets-v0.1.2`. Syntax checked against the docs (pnpm: "Install from a
 subdirectory of a Git repository", pnpm.io/package-sources; uv: "Dependency sources, Git, subdirectory",
 docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from this repo's branch.
 
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "github:dfox288/current-rules#presets-v0.1.1&path:/presets/vitest",
-  "@dfox288/test-gates": "github:dfox288/current-rules#presets-v0.1.1&path:/presets/gates"
+  "@dfox288/test-preset-vitest": "github:dfox288/current-rules#presets-v0.1.2&path:/presets/vitest",
+  "@dfox288/test-gates": "github:dfox288/current-rules#presets-v0.1.2&path:/presets/gates"
 }
 ```
 
@@ -31,7 +31,7 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 test = ["dfox288-test-preset", "<the repo's DB driver, if it has a database>"]
 
 [tool.uv.sources]
-dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "presets/pytest", tag = "presets-v0.1.1" }
+dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "presets/pytest", tag = "presets-v0.1.2" }
 ```
 
 pnpm fetches a GitHub dependency as a tarball (no `git` needed); uv runs `git`. The built JavaScript (`dist/`) is
