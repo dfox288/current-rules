@@ -1,6 +1,6 @@
 # Presets changelog
 
-## Unreleased
+## 0.1.3 (2026-10-03)
 
 - gate script, both presets: the gate summary reports the protected count per tier, one stable line per tier
   (`small: 437 tests, 41 protected`). The presets write `protected` per tier into the run summary (pytest: the
