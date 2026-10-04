@@ -17,7 +17,7 @@ from .summary import Summary, tier_of
 MARKERS = {
     "medium": "touches a database, files outside tmp_path or a subprocess (tier medium, 15 s)",
     "large": "runs several processes or a built app (tier large, 30 s)",
-    "protected": "changed or deleted only with an explicit go; the docstring says what it guards",
+    "protected": "the overseer approves changes; a removal or weakening needs an independent reviewer's check against the bar and is named in the item; the docstring says what it guards",
     "quarantine": "flaky, out of the suite that blocks a merge: skipped and counted until fixed or deleted",
 }
 LOOPBACK = ["127.0.0.1", "::1", "localhost"]

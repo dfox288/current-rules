@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { judgeTier, protectedLines, raiseFloors, tierCommand, type GateResult, type RunSummary } from './gates.ts'
+import { judgeTier, protectedLines, raiseFloors, mergeSummaries, tierCommands, type GateResult, type RunSummary } from './gates.ts'
 
 const summary = (small: number, medium = 0, large = 0): RunSummary => ({
   files: 1,
@@ -54,10 +54,10 @@ test('floors are raised, never lowered', () => {
 })
 
 test('tier selection per stack', () => {
-  assert.deepEqual(tierCommand({ stack: 'vitest' }, 'small').slice(-2), ['--tags-filter', '!medium'])
-  assert.deepEqual(tierCommand({ stack: 'vitest' }, 'large').slice(-2), ['--project', 'e2e'])
-  assert.deepEqual(tierCommand({ stack: 'pytest' }, 'medium').slice(-2), ['-m', 'medium'])
-  assert.deepEqual(tierCommand({ stack: 'pytest' }, 'small').slice(-2), ['-m', 'not medium and not large'])
+  assert.deepEqual(tierCommands({ stack: 'vitest' }, 'small')[0].slice(-3, -1), ['--tags-filter', '!medium'])
+  assert.deepEqual(tierCommands({ stack: 'vitest' }, 'large')[0].slice(-2), ['--project', 'e2e'])
+  assert.deepEqual(tierCommands({ stack: 'pytest' }, 'medium')[0].slice(-2), ['-m', 'medium'])
+  assert.deepEqual(tierCommands({ stack: 'pytest' }, 'small')[0].slice(-2), ['-m', 'not medium and not large'])
 })
 
 const withProtected = (small: number, protectedSmall?: number): RunSummary => {
@@ -95,4 +95,23 @@ test('a skipped tier and a failed gate without a summary have no line', () => {
 
 test('floors do not depend on the protected count', () => {
   assert.equal(judgeTier('small', 0, withProtected(4, 0), { small: 4 }).failure, undefined)
+})
+
+// Run and count agree: an untagged nuxt test is counted medium, so it must run in the medium pass only.
+const flat = (runs: string[][]) => runs.map((r) => r.join(' '))
+test('untagged nuxt tests run in the medium pass and not in the small pass', () => {
+  const small = flat(tierCommands({ stack: 'vitest' }, 'small'))
+  const medium = flat(tierCommands({ stack: 'vitest' }, 'medium'))
+  assert.ok(small.every((r) => !r.includes('--project nuxt')), small.join(' | '))
+  assert.ok(medium.some((r) => r.includes('--project nuxt') && !r.includes('--tags-filter')), medium.join(' | '))
+})
+test('control: untagged unit tests run in the small pass, tagged ones in medium', () => {
+  assert.ok(flat(tierCommands({ stack: 'vitest' }, 'small')).some((r) => r.includes('--project unit') && r.includes('!medium')))
+  assert.ok(flat(tierCommands({ stack: 'vitest' }, 'medium')).some((r) => r.includes('--project unit') && r.includes('--tags-filter medium')))
+})
+
+test('a medium tier made of two runs adds up in one summary', () => {
+  const merged = mergeSummaries([summary(0, 2), summary(0, 3)])
+  assert.equal(merged.tiers.medium.tests, 5)
+  assert.equal(merged.tests, 5)
 })

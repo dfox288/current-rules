@@ -1,6 +1,6 @@
 {
   "name": "@dfox288/test-preset-vitest",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "The Vitest preset of the testing baseline: tiers as projects, limits, guards, count guard, e2e helpers",
   "license": "UNLICENSED",
   "type": "module",
@@ -30,6 +30,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check:dist": "rm -rf .tmp/dist-check && tsc -p tsconfig.json --outDir .tmp/dist-check && diff -r dist .tmp/dist-check && echo 'dist is fresh'"
   },

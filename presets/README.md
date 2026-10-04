@@ -13,15 +13,15 @@ its justified differences.
 
 ## Install
 
-Tag `presets-v0.1.3`. Syntax checked against the docs (pnpm: "Install from a
+Tag `presets-v0.1.4`. Syntax checked against the docs (pnpm: "Install from a
 subdirectory of a Git repository", pnpm.io/package-sources; uv: "Dependency sources, Git, subdirectory",
 docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from this repo's branch.
 
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "github:dfox288/current-rules#presets-v0.1.3&path:/presets/vitest",
-  "@dfox288/test-gates": "github:dfox288/current-rules#presets-v0.1.3&path:/presets/gates"
+  "@dfox288/test-preset-vitest": "github:dfox288/current-rules#presets-v0.1.4&path:/presets/vitest",
+  "@dfox288/test-gates": "github:dfox288/current-rules#presets-v0.1.4&path:/presets/gates"
 }
 ```
 
@@ -31,7 +31,7 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 test = ["dfox288-test-preset", "<the repo's DB driver, if it has a database>"]
 
 [tool.uv.sources]
-dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "presets/pytest", tag = "presets-v0.1.3" }
+dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "presets/pytest", tag = "presets-v0.1.4" }
 ```
 
 pnpm fetches a GitHub dependency as a tarball (no `git` needed); uv runs `git`. The built JavaScript (`dist/`) is
@@ -58,7 +58,7 @@ export default defineTestConfig({
 A repo may add `plugins`, `resolve`, `define`, and `test` options with a `justification`; limits, retries, tags and
 `TZ` cannot be set (the config throws). Helpers: `/db` (`openTestSchema`), `/e2e` (`buildOnce`, `runBuild`,
 `startBuiltApp`, `freePort`), `/e2e/browser` (`launch`, `openPage`, `hitsInside`, `settle`; needs `playwright`).
-Tests carry tags with `it(name, { tags: ['medium'] }, fn)`.
+Tests carry tags with `it(name, { tags: ['medium'] }, fn)`. Untagged tests in `unit` count as small, untagged tests in `nuxt` count as medium (they boot Nuxt), `e2e` is large.
 
 ## pytest
 

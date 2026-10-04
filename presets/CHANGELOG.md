@@ -1,5 +1,22 @@
 # Presets changelog
 
+## 0.1.4 (2026-10-04)
+
+- vitest preset: an untagged test in the `nuxt` project counts as medium, not small. A `nuxt` test boots Nuxt
+  (`mountSuspended`), which `testing.md` calls medium ("an app or server booted in-process"). An untagged `unit` test is
+  still small, and the `medium` tag still makes a `unit` test medium. The guards are unchanged: an untagged `nuxt` test
+  still runs under the small guards (no network, writes only in the temp dir, no database), so one that needs those
+  still carries the `medium` tag. `bindings/nuxt-ts.md` says the same.
+  What an app does when it repins: its small floor drops by its `nuxt` test count and its medium floor rises by the
+  same number, in the repin commit (the new count shows in the first gate run). The gate never raises a floor by hand.
+  The gate script changes with it, so repin the preset and the gate script together: the small run covers the other
+  projects (`--tags-filter '!medium'`), the medium run is two runs added into one summary (the other projects with
+  `--tags-filter medium`, then the whole `nuxt` project), so what runs in a tier is what is counted in it.
+  A repo whose `gates.config.json` sets its own `commands` must do the same split itself.
+- both presets: the `protected` tag and marker descriptions follow the overseer-approval rule (the overseer approves
+  changes; a removal or weakening needs an independent reviewer's check and is named in the item).
+  (horizon-surveyor, testing.md tiers)
+
 ## 0.1.3 (2026-10-03)
 
 - gate script, both presets: the gate summary reports the protected count per tier, one stable line per tier

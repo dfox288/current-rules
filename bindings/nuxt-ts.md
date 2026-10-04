@@ -11,9 +11,9 @@ reviewer checks them.)*
 - **[contract item]** Tests live in Nuxt's documented folders, each a Vitest project of the same name: `test/unit`
   (Node, no Nuxt runtime), `test/nuxt` (the Nuxt runtime, set up with `defineVitestProject` from
   `@nuxt/test-utils/config`), `test/e2e` (a built app on a port, a browser).
-- **[contract item]** Tiers map onto them: an untagged test in `unit` or `nuxt` is small; a test there that touches a
-  database, files or an in-process server carries the Vitest tag `medium`; everything in `e2e` is large. There is no
-  medium folder or project.
+- **[contract item]** Tiers map onto them: an untagged test in `unit` is small; an untagged test in `nuxt` is medium,
+  because it boots Nuxt in-process; a test in `unit` that touches a database, files or an in-process server carries the
+  Vitest tag `medium`; everything in `e2e` is large. There is no medium folder or project.
 - **[contract item]** One script, `"test": "vitest"`, as Nuxt documents. No `test:*` scripts except the opt-in
   `test:coverage`. The shared gate script selects tiers with `--project` and `--tags-filter`.
 - **[rule]** A focused run always names files: `pnpm test <file>`, never `pnpm test -- <file>` (the script swallows

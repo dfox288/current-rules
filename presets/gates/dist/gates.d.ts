@@ -41,8 +41,15 @@ export type Floors = Partial<Record<Tier, number>>;
 export declare function loadConfig(root: string, file?: string): GatesConfig;
 export declare class UsageError extends Error {
 }
-/** The argv of a tier's run. Stack-specific, one place. */
-export declare function tierCommand(config: GatesConfig, tier: Tier): string[];
+/**
+ * The argv of each run that makes up a tier. Stack-specific, one place. A Vitest tag filter cannot say "everything in
+ * the nuxt project, plus the medium-tagged tests of the others", so the nuxt project (every test there boots Nuxt, so
+ * the preset counts it medium) runs on its own in the medium tier, and the small tier leaves it out. Run and count
+ * then agree. A `commands` override and the pytest stack are one run.
+ */
+export declare function tierCommands(config: GatesConfig, tier: Tier): string[][];
+/** Adds the summaries of the runs of one tier into one. */
+export declare function mergeSummaries(parts: RunSummary[]): RunSummary;
 export interface GateResult {
     name: GateName;
     status: 'ok' | 'failed' | 'skipped';

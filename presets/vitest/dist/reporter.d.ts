@@ -16,7 +16,10 @@ export interface RunSummary {
         protected: number;
     }>;
 }
-/** `unit` and `nuxt` are small, a test there with the `medium` tag is medium, `e2e` is large. */
+/**
+ * `unit` is small, `nuxt` is medium (every test there boots Nuxt, an app booted in-process), `e2e` is large.
+ * A test with the `medium` tag is medium in `unit` too.
+ */
 export declare function tierOf(project: string, tags: readonly string[]): Tier;
 export declare function summarize(modules: ReadonlyArray<TestModule>): RunSummary;
 export declare const testPresetReporter: {
