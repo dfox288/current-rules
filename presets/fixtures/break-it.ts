@@ -314,7 +314,7 @@ const gatesCases: Case[] = [
     plant: [],
     command: [...gatesRun, '--only=small'],
     expect: 'red',
-    message: /GATE RED: small \(4 small tests is below the floor of 99\)/,
+    message: /GATE RED: small \(3 small tests is below the floor of 99\)/,
     prepare: withFile('test-floors.json', '{"small": 99, "medium": 2, "large": 2}'),
   },
   {
