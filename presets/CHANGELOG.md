@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- release: `presets-release.yml` publishes both npm packages to the private registry on a `presets-v*` tag; both `package.json`
+  files carry `publishConfig.registry`. (horizon-surveyor#123)
 - gate script, both stacks: a new gate `docs` (runs after `typecheck`, before the tiers). It compares the tree with its
   base (`--base=<ref>`, default `origin/main`; `docs.base` in `gates.config.json`) and is red when `README.md`,
   `docs/**/*.md` or `CLAUDE.md` still name, in backticks or as a link target, a path the diff removed or renamed, or a

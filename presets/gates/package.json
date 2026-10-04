@@ -10,6 +10,7 @@
     ".": { "types": "./dist/gates.d.ts", "default": "./dist/gates.js" }
   },
   "files": ["dist"],
+  "publishConfig": { "registry": "https://npm.registry.tastatur-und-maus.net/" },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

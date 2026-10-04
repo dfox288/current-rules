@@ -28,6 +28,9 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "registry": "https://npm.registry.tastatur-und-maus.net/"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
