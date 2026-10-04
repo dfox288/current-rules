@@ -11,7 +11,7 @@ export const TAGS = [
     },
     {
         name: 'protected',
-        description: 'changed or deleted only with an explicit go: a safety guard or the test for a real incident',
+        description: 'a safety guard or the test for a real incident; the overseer approves changes, a removal or weakening needs an independent reviewer\'s check against that bar and is named in the item',
     },
     {
         name: 'quarantine',
