@@ -190,6 +190,8 @@ export interface RunOptions {
   /** The docs gate's base ref (default `origin/main`) and full-scan mode. */
   base?: string
   all?: boolean
+  /** The docs gate's name-status list instead of a git base. */
+  changes?: string
 }
 
 export function loadFloors(root: string, config: GatesConfig): Floors {
@@ -251,7 +253,7 @@ export async function runGates(root: string, config: GatesConfig, options: RunOp
     if (name === 'docs') {
       console.log(`\n=== docs ===`)
       const { runDocsGate } = await import('./docs.js') // loaded here: the unit tests run the .ts sources
-      const docs = runDocsGate(root, config.docs, { base: options.base, all: options.all })
+      const docs = runDocsGate(root, config.docs, { base: options.base, all: options.all, changes: options.changes })
       for (const h of docs.hits) console.log(`${h.file}:${h.line}: ${h.text}`)
       results.push({ name, status: docs.ok ? 'ok' : 'failed', seconds: seconds(), detail: docs.detail })
       continue

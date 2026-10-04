@@ -3,7 +3,7 @@
 // and CLAUDE.md. `--all` reports every backticked path in those files that does not exist in the tree.
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { join, posix } from 'node:path'
+import { basename, join, posix } from 'node:path'
 
 export interface DocsConfig {
   /** The base ref of the diff (default `origin/main`; `--base` wins). */
@@ -19,7 +19,12 @@ export const DEFAULT_DOC_GLOBS = ['README.md', 'docs/**/*.md', 'CLAUDE.md']
 export interface DocsOptions {
   base?: string
   all?: boolean
+  /** A `git diff --name-status -M` style list (`R<score>\told\tnew`, `D\tpath`, `M\tpath`): the gate then needs no git history. */
+  changes?: string
 }
+
+/** The gate could not measure: reported red, never green and never another rule. */
+export class NotMeasured extends Error {}
 
 /** One name the diff took away: a path (file or directory) or a script, with where it went if known. */
 export interface Removed {
@@ -111,12 +116,14 @@ export function spanHits(span: string, docFile: string, removed: Removed[]): Rem
 }
 
 /** Scans doc text for spans that name a removed thing. Fences count: a command in a code block is named too. */
-export function scanText(file: string, text: string, removed: Removed[], ignore: string[] = []): DocHit[] {
+export function scanText(file: string, text: string, removed: Removed[], ignore: string[] = [], self?: string): DocHit[] {
   const hits: DocHit[] = []
   for (const [i, line] of text.split('\n').entries()) {
     for (const span of spansOf(line)) {
       const r = spanHits(span.text, file, removed)
       if (!r || ignored(r.name, ignore)) continue
+      // `<this repo's name>/` alone names the repo (in another repo's docs, a link), not a folder of it
+      if (self && r.kind === 'path' && span.text.endsWith('/') && span.text.slice(0, -1) === self && r.name === self) continue
       hits.push({
         file,
         line: i + 1,
@@ -214,7 +221,13 @@ function showAt(root: string, ref: string, path: string): string | undefined {
 
 /** Everything removed or renamed between `base` (merge base with HEAD) and HEAD. */
 export function removedByDiff(root: string, base: string): Removed[] {
-  const mergeBase = git(root, ['merge-base', base, 'HEAD']).trim()
+  let mergeBase: string
+  try {
+    mergeBase = git(root, ['merge-base', base, 'HEAD']).trim()
+  } catch (error) {
+    const why = ((error as { stderr?: string }).stderr ?? '').trim()
+    throw new NotMeasured(`NOT MEASURED: git merge-base ${base} HEAD failed (no common ancestor, or a shallow history)${why ? `: ${why}` : ''}`)
+  }
   const rows = git(root, ['diff', '--name-status', '-M', '-z', mergeBase, 'HEAD']).split('\0').filter(Boolean)
   const removed: Removed[] = []
   const moves: [string, string][] = []
@@ -257,6 +270,28 @@ export function removedByDiff(root: string, base: string): Removed[] {
   return removed.filter((r) => r.kind === 'script' || !headFiles.has(r.name))
 }
 
+/**
+ * Removed and renamed paths from a name-status list, no history needed. A directory is gone when nothing of it is left
+ * in the work tree. Scripts cannot be told from a name list (the old package.json is not in it): only paths here.
+ */
+export function removedByChanges(root: string, file: string): Removed[] {
+  if (!existsSync(file)) throw new NotMeasured(`NOT MEASURED: changes file ${file} not found`)
+  const removed: Removed[] = []
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    const [status, a, b] = line.split('\t')
+    if (!status || !a) continue
+    if (status.startsWith('R') && b) removed.push({ kind: 'path', name: a, renamedTo: b })
+    else if (status === 'D') removed.push({ kind: 'path', name: a })
+  }
+  for (const r of [...removed]) {
+    for (let d = posix.dirname(r.name); d !== '.' && !removed.some((x) => x.name === d); d = posix.dirname(d)) {
+      if (existsSync(join(root, d))) break
+      removed.push({ kind: 'path', name: d, ...(r.renamedTo ? { renamedTo: posix.dirname(r.renamedTo) } : {}) })
+    }
+  }
+  return removed.filter((r) => !existsSync(join(root, r.name)))
+}
+
 // ---- the gate --------------------------------------------------------------------------------------------------
 
 export interface DocsResult {
@@ -297,22 +332,41 @@ export function runDocsGate(root: string, config: DocsConfig = {}, options: Docs
   const base = explicit ?? 'origin/main'
   const globs = [...DEFAULT_DOC_GLOBS, ...(config.globs ?? [])].map(globToRegExp)
   const ignore = config.ignore ?? []
+  const notMeasured = (detail: string): DocsResult => ({ ok: false, mode: 'diff', hits: [], detail })
 
   let tracked: string[]
   try {
     tracked = git(root, ['ls-files', '-z']).split('\0').filter(Boolean)
   } catch {
-    return { ok: false, mode: 'diff', hits: [], detail: 'not a git work tree: the docs gate is NOT MEASURED' }
+    return notMeasured('NOT MEASURED: not a git work tree')
   }
   const docs = tracked.filter((f) => globs.some((g) => g.test(f)) && existsSync(join(root, f)))
   const hasBase = refExists(root, base)
-  if (explicit && !hasBase) return { ok: false, mode: 'diff', hits: [], detail: `base ${base} not found: the docs gate is NOT MEASURED` }
 
   const hits: DocHit[] = []
-  const mode = options.all || !hasBase ? 'all' : 'diff'
+  const mode = options.all ? 'all' : 'diff'
   if (mode === 'diff') {
-    const removed = removedByDiff(root, base)
-    for (const f of docs) hits.push(...scanText(f, readFileSync(join(root, f), 'utf8'), removed, ignore))
+    let removed: Removed[]
+    let against = base
+    try {
+      if (options.changes) {
+        removed = removedByChanges(root, options.changes)
+        against = 'the changes file'
+      } else if (!hasBase) {
+        return notMeasured(
+          explicit
+            ? `NOT MEASURED: base ${base} not found`
+            : 'NOT MEASURED: no base to diff against (pass --base or --changes)',
+        )
+      } else removed = removedByDiff(root, base)
+    } catch (error) {
+      if (error instanceof NotMeasured) return notMeasured(error.message)
+      throw error
+    }
+    const self = basename(root)
+    for (const f of docs) hits.push(...scanText(f, readFileSync(join(root, f), 'utf8'), removed, ignore, self))
+    const scope = `${docs.length} docs against ${against}`
+    return { ok: hits.length === 0, mode, hits, detail: hits.length === 0 ? scope : `${hits.length} stale doc line(s), ${scope}` }
   } else {
     const files = new Set(tracked)
     const dirs = dirsOf(tracked)

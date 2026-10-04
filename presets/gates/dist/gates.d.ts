@@ -77,6 +77,8 @@ export interface RunOptions {
     /** The docs gate's base ref (default `origin/main`) and full-scan mode. */
     base?: string;
     all?: boolean;
+    /** The docs gate's name-status list instead of a git base. */
+    changes?: string;
 }
 export declare function loadFloors(root: string, config: GatesConfig): Floors;
 export declare function runGates(root: string, config: GatesConfig, options?: RunOptions): Promise<{

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { removedScripts, runDocsGate, scanMissing, scanText, spansOf, pyprojectScripts } from './docs.ts'
 
@@ -134,9 +134,56 @@ test('full scan: a backticked path that does not exist is reported; existing pat
   assert.deepEqual(lines(r), ['README.md:1: names src/gone.ts, which does not exist'])
 })
 
-test('no base available means a full scan', () => {
+test('no base and no --all is NOT MEASURED, never a silent full scan', () => {
   const root = fixture()
-  assert.equal(runDocsGate(root, {}, {}).mode, 'all')
+  const r = runDocsGate(root, {}, {})
+  assert.equal(r.ok, false)
+  assert.equal(r.detail, 'NOT MEASURED: no base to diff against (pass --base or --changes)')
+  assert.equal(runDocsGate(root, {}, { all: true }).mode, 'all')
+})
+
+test('a base with no common ancestor is NOT MEASURED with the reason, not a crash', () => {
+  const root = fixture()
+  sh(root, 'checkout', '-q', '--orphan', 'unrelated')
+  commit(root)
+  const r = gate(root)
+  assert.equal(r.ok, false)
+  assert.match(r.detail, /^NOT MEASURED: .*merge-base/)
+})
+
+test('a changes file needs no history: a single root commit and a rename list flag the old name', () => {
+  const root = fixture()
+  rmSync(join(root, '.git'), { recursive: true })
+  sh(root, 'init', '-q', '-b', 'main')
+  renameSync(join(root, 'src/old.ts'), join(root, 'src/new.ts'))
+  put(root, 'changes.txt', 'R100\tsrc/old.ts\tsrc/new.ts\nM\tREADME.md\nD\tdocs/gone.md\n')
+  sh(root, 'add', '-A')
+  sh(root, 'commit', '-q', '-m', 'only commit')
+  const r = runDocsGate(root, {}, { changes: join(root, 'changes.txt') })
+  assert.equal(r.ok, false)
+  assert.deepEqual(lines(r), ['README.md:1: names src/old.ts, which this change renamed to src/new.ts'])
+  put(root, 'README.md', 'Run `pnpm lint` and see `src/new.ts`.\n')
+  assert.equal(runDocsGate(root, {}, { changes: join(root, 'changes.txt') }).ok, true)
+  assert.match(runDocsGate(root, {}, {}).detail, /^NOT MEASURED/)
+})
+
+test('a changes file that is not there is NOT MEASURED', () => {
+  const root = fixture()
+  assert.match(runDocsGate(root, {}, { changes: join(root, 'nope.txt') }).detail, /^NOT MEASURED: .*nope\.txt/)
+})
+
+test('a bare directory name with a slash that is the repo itself is not a hit; docs.ignore handles paths inside', () => {
+  const root = fixture()
+  const self = basename(root)
+  put(root, 'README.md', `The manifests live in \`${self}/\` of the other repo, and \`${self}/deploy.yaml\`.\n`)
+  put(root, `${self}/deploy.yaml`, body('d'))
+  commit(root)
+  sh(root, 'branch', '-f', 'main', 'HEAD')
+  renameSync(join(root, self), join(root, 'app'))
+  commit(root)
+  const r = gate(root)
+  assert.deepEqual(lines(r), [`README.md:1: names ${self}/deploy.yaml, which this change renamed to app/deploy.yaml`])
+  assert.equal(runDocsGate(root, { ignore: [`${self}/*`] }, { base: 'main' }).ok, true)
 })
 
 test('unit: spans, script rename detection, pyproject scripts', () => {

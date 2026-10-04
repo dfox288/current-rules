@@ -185,7 +185,7 @@ export async function runGates(root, config, options = {}) {
         if (name === 'docs') {
             console.log(`\n=== docs ===`);
             const { runDocsGate } = await import('./docs.js'); // loaded here: the unit tests run the .ts sources
-            const docs = runDocsGate(root, config.docs, { base: options.base, all: options.all });
+            const docs = runDocsGate(root, config.docs, { base: options.base, all: options.all, changes: options.changes });
             for (const h of docs.hits)
                 console.log(`${h.file}:${h.line}: ${h.text}`);
             results.push({ name, status: docs.ok ? 'ok' : 'failed', seconds: seconds(), detail: docs.detail });

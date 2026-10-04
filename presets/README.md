@@ -103,7 +103,13 @@ every backticked path in those files that is not in the tree (fenced blocks skip
 "docs": { "base": "origin/main", "globs": ["notes/*.md"], "ignore": ["dist/*", "src/legacy.ts"] }
 ```
 
-With no base ref to compare the gate does a full scan; an explicit base that does not resolve is red.
+With no base to compare (no `--base`, no `origin/main`) the gate is red, `NOT MEASURED: no base to diff against (pass
+--base or --changes)`; so is a failing `git merge-base` (shallow clone) and a `--base` that does not resolve. It never
+falls back to the full scan. `--changes=<file>` takes a `git diff --name-status -M` style list (`R<score>\told\tnew`,
+`D\tpath`, `M\tpath`) and needs no git history (the docs are read from the work tree; script removals need the old
+`package.json`, so only paths are seen). A bare `<this repo's name>/` in a doc is not a hit when a local folder of that
+name moved (another repo's folder of the same name); paths inside it (`lookout/deploy.yaml`) are, so add them to
+`docs.ignore` (`"lookout/*"`).
 
 ## What the guards do not catch
 
