@@ -18,20 +18,62 @@ export function loadConfig(root, file = 'gates.config.json') {
 }
 export class UsageError extends Error {
 }
-/** The argv of a tier's run. Stack-specific, one place. */
-export function tierCommand(config, tier) {
+/**
+ * The argv of each run that makes up a tier. Stack-specific, one place. A Vitest tag filter cannot say "everything in
+ * the nuxt project, plus the medium-tagged tests of the others", so the nuxt project (every test there boots Nuxt, so
+ * the preset counts it medium) runs on its own in the medium tier, and the small tier leaves it out. Run and count
+ * then agree. A `commands` override and the pytest stack are one run.
+ */
+export function tierCommands(config, tier) {
     const own = config.commands?.[tier];
     if (own)
-        return own;
+        return [own];
     if (config.stack === 'vitest') {
-        const small = config.projects?.smallMedium ?? ['unit', 'nuxt'];
-        const large = config.projects?.large ?? ['e2e'];
-        const projects = (tier === 'large' ? large : small).flatMap((p) => ['--project', p]);
-        const filter = tier === 'small' ? ['--tags-filter', '!medium'] : tier === 'medium' ? ['--tags-filter', 'medium'] : [];
-        return ['pnpm', 'exec', 'vitest', 'run', ...projects, ...filter];
+        const base = ['pnpm', 'exec', 'vitest', 'run'];
+        const projects = (names) => names.flatMap((p) => ['--project', p]);
+        if (tier === 'large')
+            return [[...base, ...projects(config.projects?.large ?? ['e2e'])]];
+        const smallMedium = config.projects?.smallMedium ?? ['unit', 'nuxt'];
+        const nuxt = smallMedium.filter((p) => p === 'nuxt');
+        const others = smallMedium.filter((p) => p !== 'nuxt');
+        const runs = [];
+        if (others.length > 0)
+            runs.push([
+                ...base,
+                ...projects(others),
+                '--tags-filter',
+                tier === 'small' ? '!medium' : 'medium',
+                ...(nuxt.length > 0 ? ['--passWithNoTests'] : []),
+            ]);
+        if (tier === 'medium' && nuxt.length > 0)
+            runs.push([...base, ...projects(nuxt)]);
+        return runs;
     }
     const marker = tier === 'small' ? 'not medium and not large' : tier === 'medium' ? 'medium' : 'large';
-    return ['uv', 'run', '--group', 'test', 'pytest', '-m', marker];
+    return [['uv', 'run', '--group', 'test', 'pytest', '-m', marker]];
+}
+/** Adds the summaries of the runs of one tier into one. */
+export function mergeSummaries(parts) {
+    const sum = (f) => parts.reduce((n, s) => n + f(s), 0);
+    const tiers = {};
+    for (const tier of TIERS) {
+        const protectedKnown = parts.every((s) => s.tiers[tier].protected !== undefined);
+        tiers[tier] = {
+            files: sum((s) => s.tiers[tier].files),
+            tests: sum((s) => s.tiers[tier].tests),
+            ...(protectedKnown ? { protected: sum((s) => s.tiers[tier].protected ?? 0) } : {}),
+        };
+    }
+    return {
+        files: sum((s) => s.files),
+        tests: sum((s) => s.tests),
+        skipped: sum((s) => s.skipped),
+        quarantined: sum((s) => s.quarantined),
+        failed: sum((s) => s.failed),
+        flaky: parts.flatMap((s) => s.flaky),
+        retriedBeyondRules: parts.flatMap((s) => s.retriedBeyondRules),
+        tiers,
+    };
 }
 /** Judges a finished tier run against the count guard. Returns a failure text, or undefined if it holds. */
 export function judgeTier(tier, exitCode, summary, floors) {
@@ -112,15 +154,24 @@ export async function runGates(root, config, options = {}) {
                 continue;
             }
             console.log(`\n=== ${name} ===`);
-            const summaryPath = join(root, '.tmp', 'gates', `${name}.summary.json`);
-            rmSync(summaryPath, { force: true });
-            const code = await runCommand(tierCommand(config, tier), root, join(root, '.tmp', 'gates', `${name}.log`), {
-                ...process.env,
-                TEST_PRESET_SUMMARY: summaryPath,
-            });
-            const summary = existsSync(summaryPath)
-                ? JSON.parse(readFileSync(summaryPath, 'utf8'))
-                : undefined;
+            const commands = tierCommands(config, tier);
+            let code = commands.length === 0 ? 1 : 0;
+            const parts = [];
+            for (const [i, argv] of commands.entries()) {
+                const suffix = commands.length > 1 ? `.${i + 1}` : '';
+                const summaryPath = join(root, '.tmp', 'gates', `${name}${suffix}.summary.json`);
+                rmSync(summaryPath, { force: true });
+                const c = await runCommand(argv, root, join(root, '.tmp', 'gates', `${name}${suffix}.log`), {
+                    ...process.env,
+                    TEST_PRESET_SUMMARY: summaryPath,
+                });
+                if (c !== 0 && code === 0)
+                    code = c;
+                if (existsSync(summaryPath))
+                    parts.push(JSON.parse(readFileSync(summaryPath, 'utf8')));
+            }
+            // a run that wrote no summary leaves the tier unmeasured
+            const summary = parts.length === commands.length && parts.length > 0 ? mergeSummaries(parts) : undefined;
             const judged = judgeTier(tier, code, summary, floors);
             results.push({
                 name,

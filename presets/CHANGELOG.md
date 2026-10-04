@@ -9,6 +9,12 @@
   still carries the `medium` tag. `bindings/nuxt-ts.md` says the same.
   What an app does when it repins: its small floor drops by its `nuxt` test count and its medium floor rises by the
   same number, in the repin commit (the new count shows in the first gate run). The gate never raises a floor by hand.
+  The gate script changes with it, so repin the preset and the gate script together: the small run covers the other
+  projects (`--tags-filter '!medium'`), the medium run is two runs added into one summary (the other projects with
+  `--tags-filter medium`, then the whole `nuxt` project), so what runs in a tier is what is counted in it.
+  A repo whose `gates.config.json` sets its own `commands` must do the same split itself.
+- both presets: the `protected` tag and marker descriptions follow the overseer-approval rule (the overseer approves
+  changes; a removal or weakening needs an independent reviewer's check and is named in the item).
   (horizon-surveyor, testing.md tiers)
 
 ## 0.1.3 (2026-10-03)
