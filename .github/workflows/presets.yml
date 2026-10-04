@@ -46,6 +46,8 @@ jobs:
 
       - name: dist is fresh (vitest)
         run: pnpm -C presets/vitest check:dist
+      - name: Reporter unit tests (vitest)
+        run: pnpm -C presets/vitest test
       - name: dist is fresh (gates)
         run: pnpm -C presets/gates check:dist
       - name: Gate script unit tests

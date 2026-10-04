@@ -3,10 +3,15 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { LIMITS, PROJECTS, SUMMARY_ENV } from './constants.js';
-/** `unit` and `nuxt` are small, a test there with the `medium` tag is medium, `e2e` is large. */
+/**
+ * `unit` is small, `nuxt` is medium (every test there boots Nuxt, an app booted in-process), `e2e` is large.
+ * A test with the `medium` tag is medium in `unit` too.
+ */
 export function tierOf(project, tags) {
     if (project === PROJECTS.e2e)
         return 'large';
+    if (project === PROJECTS.nuxt)
+        return 'medium';
     return tags.includes('medium') ? 'medium' : 'small';
 }
 export function summarize(modules) {

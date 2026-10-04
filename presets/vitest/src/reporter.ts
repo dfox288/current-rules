@@ -20,9 +20,13 @@ export interface RunSummary {
   tiers: Record<Tier, { files: number; tests: number; protected: number }>
 }
 
-/** `unit` and `nuxt` are small, a test there with the `medium` tag is medium, `e2e` is large. */
+/**
+ * `unit` is small, `nuxt` is medium (every test there boots Nuxt, an app booted in-process), `e2e` is large.
+ * A test with the `medium` tag is medium in `unit` too.
+ */
 export function tierOf(project: string, tags: readonly string[]): Tier {
   if (project === PROJECTS.e2e) return 'large'
+  if (project === PROJECTS.nuxt) return 'medium'
   return tags.includes('medium') ? 'medium' : 'small'
 }
 

@@ -1,5 +1,16 @@
 # Presets changelog
 
+## 0.1.4 (2026-10-04)
+
+- vitest preset: an untagged test in the `nuxt` project counts as medium, not small. A `nuxt` test boots Nuxt
+  (`mountSuspended`), which `testing.md` calls medium ("an app or server booted in-process"). An untagged `unit` test is
+  still small, and the `medium` tag still makes a `unit` test medium. The guards are unchanged: an untagged `nuxt` test
+  still runs under the small guards (no network, writes only in the temp dir, no database), so one that needs those
+  still carries the `medium` tag. `bindings/nuxt-ts.md` says the same.
+  What an app does when it repins: its small floor drops by its `nuxt` test count and its medium floor rises by the
+  same number, in the repin commit (the new count shows in the first gate run). The gate never raises a floor by hand.
+  (horizon-surveyor, testing.md tiers)
+
 ## 0.1.3 (2026-10-03)
 
 - gate script, both presets: the gate summary reports the protected count per tier, one stable line per tier
