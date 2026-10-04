@@ -1,5 +1,22 @@
 # Presets changelog
 
+## Unreleased
+
+- gate script, both stacks: a new gate `docs` (runs after `typecheck`, before the tiers). It compares the tree with its
+  base (`--base=<ref>`, default `origin/main`; `docs.base` in `gates.config.json`) and is red when `README.md`,
+  `docs/**/*.md` or `CLAUDE.md` still name, in backticks or as a link target, a path the diff removed or renamed, or a
+  `package.json` / `pyproject` (`[project.scripts]`) script it removed or renamed. Each hit is
+  `file:line: names <old>, which this change removed|renamed to <new>`. `--all` is the full scan: every backticked path
+  in those files that is not in the tree (fenced blocks skipped). `docs.globs` adds doc files, `docs.ignore` keeps a
+  name. With no base to compare against (no `--base`, no `origin/main`) and no `--changes`, the gate is red with
+  `NOT MEASURED: no base to diff against (pass --base or --changes)`; it never falls back to the full scan. A failing
+  `git merge-base` (no common ancestor, shallow history) and an explicit `--base` that does not resolve are the same
+  red. `--changes=<file>` takes a `git diff --name-status -M` style list (`R<score>\told\tnew`, `D\tpath`) and needs
+  no history (paths only: a script removal cannot be seen without the old package.json). A bare `<repo-name>/` in a
+  doc does not count as a hit for a moved folder of that name; `docs.ignore` handles paths inside it. A repo gets the gate by repinning `@dfox288/test-gates`; its
+  first run may be red on lines that were already stale, which the repin commit fixes. The rule is in
+  `dfox288/standard.md`, "Docs and changelog". (horizon-surveyor#149)
+
 ## 0.1.4 (2026-10-04)
 
 - vitest preset: an untagged test in the `nuxt` project counts as medium, not small. A `nuxt` test boots Nuxt

@@ -1,6 +1,7 @@
+import type { DocsConfig } from './docs.js';
 export type Stack = 'vitest' | 'pytest';
 export type Tier = 'small' | 'medium' | 'large';
-export declare const GATE_NAMES: readonly ["lint", "format", "typecheck", "small", "medium", "large", "build"];
+export declare const GATE_NAMES: readonly ["lint", "format", "typecheck", "docs", "small", "medium", "large", "build"];
 export type GateName = (typeof GATE_NAMES)[number];
 export interface GatesConfig {
     stack: Stack;
@@ -18,6 +19,8 @@ export interface GatesConfig {
      * path). It must still run the preset: a run that writes no summary is red.
      */
     commands?: Partial<Record<Tier, string[]>>;
+    /** The docs gate (no doc the diff makes untrue): extra doc globs, ignore list, base ref. */
+    docs?: DocsConfig;
     /** The floors file, relative to the repo (default `test-floors.json`). */
     floors?: string;
 }
@@ -71,6 +74,11 @@ export declare function protectedLines(results: GateResult[]): string[];
 export interface RunOptions {
     only?: GateName[];
     raiseFloors?: boolean;
+    /** The docs gate's base ref (default `origin/main`) and full-scan mode. */
+    base?: string;
+    all?: boolean;
+    /** The docs gate's name-status list instead of a git base. */
+    changes?: string;
 }
 export declare function loadFloors(root: string, config: GatesConfig): Floors;
 export declare function runGates(root: string, config: GatesConfig, options?: RunOptions): Promise<{

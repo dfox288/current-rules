@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test src/gates.test.ts",
+    "test": "node --test src/gates.test.ts src/docs.test.ts",
     "check:dist": "rm -rf .tmp/dist-check && tsc -p tsconfig.json --outDir .tmp/dist-check && diff -r dist .tmp/dist-check && echo 'dist is fresh'"
   },
   "devDependencies": {

@@ -5,7 +5,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, createWriteStream } from 'node:fs';
 import { join } from 'node:path';
-export const GATE_NAMES = ['lint', 'format', 'typecheck', 'small', 'medium', 'large', 'build'];
+export const GATE_NAMES = ['lint', 'format', 'typecheck', 'docs', 'small', 'medium', 'large', 'build'];
 const TIERS = ['small', 'medium', 'large'];
 export function loadConfig(root, file = 'gates.config.json') {
     const path = join(root, file);
@@ -180,6 +180,15 @@ export async function runGates(root, config, options = {}) {
                 detail: judged.failure ?? judged.detail,
                 summary,
             });
+            continue;
+        }
+        if (name === 'docs') {
+            console.log(`\n=== docs ===`);
+            const { runDocsGate } = await import('./docs.js'); // loaded here: the unit tests run the .ts sources
+            const docs = runDocsGate(root, config.docs, { base: options.base, all: options.all, changes: options.changes });
+            for (const h of docs.hits)
+                console.log(`${h.file}:${h.line}: ${h.text}`);
+            results.push({ name, status: docs.ok ? 'ok' : 'failed', seconds: seconds(), detail: docs.detail });
             continue;
         }
         const argv = config.gates?.[name];

@@ -5,11 +5,12 @@
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, createWriteStream } from 'node:fs'
 import { join } from 'node:path'
+import type { DocsConfig } from './docs.js'
 
 export type Stack = 'vitest' | 'pytest'
 export type Tier = 'small' | 'medium' | 'large'
 
-export const GATE_NAMES = ['lint', 'format', 'typecheck', 'small', 'medium', 'large', 'build'] as const
+export const GATE_NAMES = ['lint', 'format', 'typecheck', 'docs', 'small', 'medium', 'large', 'build'] as const
 export type GateName = (typeof GATE_NAMES)[number]
 const TIERS: readonly Tier[] = ['small', 'medium', 'large']
 
@@ -26,6 +27,8 @@ export interface GatesConfig {
    * path). It must still run the preset: a run that writes no summary is red.
    */
   commands?: Partial<Record<Tier, string[]>>
+  /** The docs gate (no doc the diff makes untrue): extra doc globs, ignore list, base ref. */
+  docs?: DocsConfig
   /** The floors file, relative to the repo (default `test-floors.json`). */
   floors?: string
 }
@@ -184,6 +187,11 @@ function runCommand(argv: string[], cwd: string, logPath: string, env: NodeJS.Pr
 export interface RunOptions {
   only?: GateName[]
   raiseFloors?: boolean
+  /** The docs gate's base ref (default `origin/main`) and full-scan mode. */
+  base?: string
+  all?: boolean
+  /** The docs gate's name-status list instead of a git base. */
+  changes?: string
 }
 
 export function loadFloors(root: string, config: GatesConfig): Floors {
@@ -239,6 +247,15 @@ export async function runGates(root: string, config: GatesConfig, options: RunOp
         detail: judged.failure ?? judged.detail,
         summary,
       })
+      continue
+    }
+
+    if (name === 'docs') {
+      console.log(`\n=== docs ===`)
+      const { runDocsGate } = await import('./docs.js') // loaded here: the unit tests run the .ts sources
+      const docs = runDocsGate(root, config.docs, { base: options.base, all: options.all, changes: options.changes })
+      for (const h of docs.hits) console.log(`${h.file}:${h.line}: ${h.text}`)
+      results.push({ name, status: docs.ok ? 'ok' : 'failed', seconds: seconds(), detail: docs.detail })
       continue
     }
 
