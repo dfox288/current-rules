@@ -17,7 +17,9 @@ checks it reading the diff and report).
 A test's tier is set by what it may touch, not by how much code it covers.
 
 - **Small:** nothing outside the process. No network, no database, no files outside its own temp directory, no sleep,
-  no server or container boot. In-process framework environments are allowed.
+  no server or container boot. In-process framework environments are allowed. It may read checked-in repo files
+  (fixtures, configs, source) read-only; writing outside its own temp directory, the network, a database or a server
+  makes it medium.
 - **Medium:** localhost. A real database, files, an app or server booted in-process.
 - **Large:** a built app on a port, a browser, or several processes.
 
@@ -84,7 +86,10 @@ A test's tier is set by what it may touch, not by how much code it covers.
 ## Protected tests and the count guard
 
 - **[contract item]** A protected test carries the stack's machine-readable `protected` marker (the binding names it).
-  It is changed or deleted only with Reza's explicit go (the reviewer checks this).
+  The overseer approves every change to a protected test. A change that removes or weakens protection (untag, delete,
+  meaning change, timing) also needs an independent check by a reviewer who did not draft it, against the bar below,
+  with evidence: no incident cite, not a safety or data guard, and the break-it still red. The item names each
+  removal. The protected count drops only through items that name each removal.
 - **[rule]** A test earns `protected` only as a safety guard (the fence, secrets, data loss) or as the test for a real
   incident or decision. It carries a plain sentence saying what it guards, plus `owner/repo#N` when an incident is
   behind it. No D-numbers, audit sections or other internal references in test code: nobody outside can resolve
