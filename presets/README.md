@@ -38,6 +38,38 @@ pnpm fetches a GitHub dependency as a tarball (no `git` needed); uv runs `git`. 
 committed, because pnpm skips install scripts (`prepare`) here: after changing `vitest/src` or `gates/src` run
 `pnpm build` in that directory, and `pnpm check:dist` fails when `dist/` is stale.
 
+## Release and registry install
+
+The two npm packages (`@dfox288/test-preset-vitest`, `@dfox288/test-gates`) are also published to the private npm
+registry `https://npm.registry.tastatur-und-maus.net/`, so a repin is a version bump and needs no git access. The
+pytest package stays a git dependency.
+
+Cutting a release:
+
+1. Bump `version` in `vitest/package.json` and `gates/package.json` to the same number, run `pnpm build` where `src`
+   changed, move the CHANGELOG's Unreleased entries under the new version, merge to `main`.
+2. Tag the merge commit `presets-vX.Y.Z` and push the tag.
+3. `.github/workflows/presets-release.yml` builds and tests both packages, then publishes them. It fails before
+   publishing when the tag differs from either `package.json` version, when `dist/` is stale, or when the version is
+   already on the registry (nothing is overwritten). Credentials come from Infisical by OIDC. A manual dispatch is a
+   dry run (packs both, prints the file lists, publishes nothing).
+
+Pinning the registry version in a repo (the scope is `@dfox288`; the repo's `.npmrc` points the scope at the registry
+and CI gets read auth the way landfall-ui's workflows do):
+
+```jsonc
+// package.json
+"devDependencies": {
+  "@dfox288/test-preset-vitest": "0.1.4",
+  "@dfox288/test-gates": "0.1.4"
+}
+```
+
+```ini
+# .npmrc
+@dfox288:registry=https://npm.registry.tastatur-und-maus.net/
+```
+
 ## Vitest
 
 ```ts

@@ -1,0 +1,230 @@
+# Publishes the two presets packages (@dfox288/test-preset-vitest, @dfox288/test-gates)
+# to the private npm registry when a `presets-v*` tag is pushed. A manual
+# dispatch defaults to a dry run: it packs both packages and prints what it
+# would publish. No credential is stored in GitHub: the only input is the
+# repository variable INFISICAL_RELEASE_IDENTITY_ID; the registry auth values
+# are fetched by Infisical OIDC and live in files under $RUNNER_TEMP that the
+# last step clears (same shape as landfall-ui's release workflow).
+name: presets-release
+
+on:
+  push:
+    tags: ['presets-v*']
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Pack and print only; publish nothing.
+        type: boolean
+        default: true
+
+concurrency:
+  group: presets-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: https://npm.registry.tastatur-und-maus.net/
+
+jobs:
+  # Same build and test steps as presets.yml. No registry credentials here.
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: preset
+          POSTGRES_DB: preset_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:preset@localhost:5432/preset_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12.8.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: '3.14'
+
+      - name: Install the TypeScript packages
+        run: |
+          pnpm -C presets/vitest install --frozen-lockfile
+          pnpm -C presets/gates install --frozen-lockfile
+
+      - name: dist is fresh (vitest)
+        run: pnpm -C presets/vitest check:dist
+      - name: Reporter unit tests (vitest)
+        run: pnpm -C presets/vitest test
+      - name: dist is fresh (gates)
+        run: pnpm -C presets/gates check:dist
+      - name: Gate script unit tests
+        run: pnpm -C presets/gates test
+
+      - name: Install the fixtures
+        run: |
+          # not frozen: pnpm cannot freeze a `file:` dependency on a package that has optional peers
+          pnpm -C presets/fixtures/nuxt-app install --no-frozen-lockfile
+          pnpm -C presets/fixtures/nuxt-app exec playwright install --with-deps chromium
+          uv sync --project presets/fixtures/python-pkg --group test --frozen
+
+      - name: Break-it, Vitest preset
+        run: node presets/fixtures/break-it.ts vitest
+      - name: Break-it, pytest preset
+        run: node presets/fixtures/break-it.ts pytest
+      - name: Break-it, gate script on the Nuxt fixture
+        run: node presets/fixtures/break-it.ts gates
+      - name: Break-it, gate script on the Python fixture
+        run: node presets/fixtures/break-it.ts gates-pytest
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Before any login: the tag and both package.json versions must agree.
+      # A real publish runs from a presets-v* tag only.
+      - name: Versions match the tag
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          vitest_version="$(node -p "require('./presets/vitest/package.json').version")"
+          gates_version="$(node -p "require('./presets/gates/package.json').version")"
+          echo "vitest preset $vitest_version, gates $gates_version"
+          if [ "$vitest_version" != "$gates_version" ]; then
+            echo "::error::the two package.json versions differ ($vitest_version vs $gates_version); they are released together"
+            exit 1
+          fi
+          if [ "$DRY_RUN" != "true" ] && [ "$REF_TYPE" != "tag" ]; then
+            echo "::error::a real publish runs from a presets-v* tag only (this run is on $REF_TYPE $REF_NAME); dispatch a dry run instead"
+            exit 1
+          fi
+          if [ "$REF_TYPE" = "tag" ] && [ "$REF_NAME" != "presets-v$vitest_version" ]; then
+            echo "::error::tag $REF_NAME does not match the package versions (expected presets-v$vitest_version)"
+            exit 1
+          fi
+          echo "VERSION=$vitest_version" >> "$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 12.8.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Install and check dist
+        run: |
+          for pkg in vitest gates; do
+            pnpm -C "presets/$pkg" install --frozen-lockfile
+            pnpm -C "presets/$pkg" check:dist
+          done
+
+      - name: Pack both packages
+        run: |
+          mkdir -p "$RUNNER_TEMP/packs"
+          for pkg in vitest gates; do
+            pnpm -C "presets/$pkg" pack --pack-destination "$RUNNER_TEMP/packs"
+          done
+          for tgz in "$RUNNER_TEMP"/packs/*.tgz; do
+            echo "== $tgz"
+            tar -tzf "$tgz"
+            tar -tzf "$tgz" | grep -q '^package/dist/' || { echo "::error::$tgz has no dist/"; exit 1; }
+          done
+
+      # Pinned to the same release as landfall-ui's release workflow (v1.0.18).
+      - name: Log in to Infisical (registry read)
+        uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        with:
+          method: oidc
+          domain: https://secrets.tastatur-und-maus.net
+          identity-id: ${{ vars.INFISICAL_RELEASE_IDENTITY_ID }}
+          project-slug: npm-registry-read
+          env-slug: prod
+          secret-path: /
+
+      # A version already on the registry fails the run; nothing is overwritten.
+      # Both packages are checked before either is published.
+      - name: This version is not on the registry yet
+        run: |
+          umask 077
+          READ_AUTH_FILE="$RUNNER_TEMP/npm-read-auth.npmrc"
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then echo "::add-mask::$line"; fi
+          done <<< "$NPM_READ_AUTH"
+          printf '%s\n%s\n' \
+            '@dfox288:registry=https://npm.registry.tastatur-und-maus.net/' \
+            "//npm.registry.tastatur-und-maus.net/:_auth=${NPM_READ_AUTH:?NPM_READ_AUTH was not fetched}" > "$READ_AUTH_FILE"
+          echo "NPM_READ_AUTH=" >> "$GITHUB_ENV"
+          for pkg in vitest gates; do
+            name="$(node -p "require('./presets/$pkg/package.json').name")"
+            rc=0
+            out="$(npm view "$name@$VERSION" version --registry "$REGISTRY" --userconfig "$READ_AUTH_FILE" 2>&1)" || rc=$?
+            if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
+              echo "::error::$name $VERSION is already on the registry; bump the versions and tag again"
+              exit 1
+            fi
+            if ! printf '%s' "$out" | grep -q 'E404'; then
+              echo "::error::could not tell whether $name $VERSION exists (npm view exit $rc): $out"
+              exit 1
+            fi
+            echo "$name $VERSION is not on the registry"
+          done
+
+      - name: Dry run, nothing published
+        if: env.DRY_RUN == 'true'
+        run: echo "::notice::dry run - would publish @dfox288/test-preset-vitest and @dfox288/test-gates $VERSION; nothing published"
+
+      - name: Log in to Infisical (registry publish)
+        if: env.DRY_RUN != 'true'
+        uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        with:
+          method: oidc
+          domain: https://secrets.tastatur-und-maus.net
+          identity-id: ${{ vars.INFISICAL_RELEASE_IDENTITY_ID }}
+          project-slug: npm-registry-publish
+          env-slug: prod
+          secret-path: /
+
+      - name: Publish
+        if: env.DRY_RUN != 'true'
+        run: |
+          umask 077
+          PUBLISH_AUTH_FILE="$RUNNER_TEMP/npm-publish-auth.npmrc"
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then echo "::add-mask::$line"; fi
+          done <<< "$NPM_PUBLISH_AUTH"
+          printf '%s\n%s\n' \
+            '@dfox288:registry=https://npm.registry.tastatur-und-maus.net/' \
+            "//npm.registry.tastatur-und-maus.net/:_auth=${NPM_PUBLISH_AUTH:?NPM_PUBLISH_AUTH was not fetched}" > "$PUBLISH_AUTH_FILE"
+          echo "NPM_PUBLISH_AUTH=" >> "$GITHUB_ENV"
+          for pkg in vitest gates; do
+            PNPM_CONFIG_NPMRC_AUTH_FILE="$PUBLISH_AUTH_FILE" pnpm -C "presets/$pkg" publish --no-git-checks --registry "$REGISTRY"
+          done
+
+      - name: Clear the registry auth files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/npm-read-auth.npmrc" "$RUNNER_TEMP/npm-publish-auth.npmrc"
