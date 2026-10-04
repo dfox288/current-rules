@@ -386,7 +386,7 @@ cases['gates-pytest'] = {
     {
       name: 'control: all three pytest tiers green against the committed floors',
       plant: [],
-      command: [...gatesPyRun],
+      command: [...gatesPyRun, '--base=HEAD'], // as the Nuxt control: no origin/main in a CI checkout
       expect: 'green',
       message: /GATE GREEN \(quarantined: 0, flaky: 0\)/,
     },
