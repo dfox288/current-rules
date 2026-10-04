@@ -304,7 +304,8 @@ const gatesCases: Case[] = [
   {
     name: 'control: all three tiers green against the committed floors',
     plant: [],
-    command: [...gatesRun],
+    // --base=HEAD: the docs gate is NOT MEASURED without a base ref, and a CI checkout has no origin/main
+    command: [...gatesRun, '--base=HEAD'],
     expect: 'green',
     message: /GATE GREEN \(quarantined: 0, flaky: 0\)/,
   },
@@ -313,7 +314,7 @@ const gatesCases: Case[] = [
     plant: [],
     command: [...gatesRun, '--only=small'],
     expect: 'red',
-    message: /GATE RED: small \(4 small tests is below the floor of 99\)/,
+    message: /GATE RED: small \(3 small tests is below the floor of 99\)/,
     prepare: withFile('test-floors.json', '{"small": 99, "medium": 2, "large": 2}'),
   },
   {
@@ -350,7 +351,7 @@ const gatesCases: Case[] = [
     plant: [{ from: 'protected-kinds.test.ts', to: 'test/unit/protected-kinds.test.ts' }],
     command: [...gatesRun, '--only=small'],
     expect: 'green',
-    message: /^(?=[\s\S]*^ {2}small: 8 tests, 4 protected$)/m,
+    message: /^(?=[\s\S]*^ {2}small: 7 tests, 4 protected$)/m,
   },
   {
     name: 'protected count: a tier with none says 0, the line is there',
@@ -385,7 +386,7 @@ cases['gates-pytest'] = {
     {
       name: 'control: all three pytest tiers green against the committed floors',
       plant: [],
-      command: [...gatesPyRun],
+      command: [...gatesPyRun, '--base=HEAD'], // as the Nuxt control: no origin/main in a CI checkout
       expect: 'green',
       message: /GATE GREEN \(quarantined: 0, flaky: 0\)/,
     },
