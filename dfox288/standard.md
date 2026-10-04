@@ -84,8 +84,13 @@ The testing rules for every repo are in `testing.md` at the top of this repo, pl
   unless the commit message carries `Changelog: none (<why>)`. *Check: a pre-push hook (or the reviewer, reading
   the commit range).* What you write in the changelog (a running
   "Unreleased" entry vs. a dated cut section) depends on your `released`/`unreleased` trait — see those files.
-- **[rule]** `README.md` only names commands and paths that exist in the tree. *Check: reviewer spot-checks
-  backticked paths/commands against the repo; a drift gate if the repo has one.*
+- **[contract item]** No doc the diff makes untrue: a PR that removes or renames a path, a `package.json` script
+  or a `pyproject` script leaves no `README.md`, `docs/**/*.md` or `CLAUDE.md` line naming the old one. *Check: the
+  `docs` gate (`test-gates --only=docs`, `--base=<ref>`; red names `file:line`); the reviewer for what a gate cannot
+  see (prose, a behaviour that changed).*
+- **[rule]** `README.md` only names commands and paths that exist in the tree. *Check: the `docs` gate in full-scan
+  mode (`test-gates --only=docs --all`) reports every backticked path that does not exist; the reviewer
+  spot-checks the commands.*
 - **[rule]** `docs/features.md` (if the repo has one) lists only what exists on `main`, one line per feature,
   each cited to where it lives — no "planned"/"coming"/"partial" markers. *Check: reviewer reads the file against
   the diff for anything newly true that isn't listed, or anything listed that isn't true yet.*

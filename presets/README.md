@@ -69,7 +69,7 @@ takes the repo's `connect(url)` (a DB-API connection) and gives a schema that is
 ## Gates
 
 `gates.config.json` in the repo: `{ "stack": "vitest" | "pytest", "gates": { "lint": ["pnpm", "lint"], ... } }`; then
-`test-gates` (or `test-gates --only=small,medium`). Gate names: `lint`, `format`, `typecheck`, `small`, `medium`,
+`test-gates` (or `test-gates --only=small,medium`). Gate names: `lint`, `format`, `typecheck`, `docs`, `small`, `medium`,
 `large`, `build`. `lint` and `format` red stop the run. A tier below its floor in `test-floors.json`, one that ran
 zero tests and one whose run wrote no summary (the preset did not run) are red; `--raise-floors` raises the floors
 after a green run and never lowers them. The last line is `GATE GREEN (...)` or `GATE RED: <gate (reason)>, ...`.
@@ -88,6 +88,22 @@ from the run of the tier itself (the preset writes it into the run summary next 
 needs no second command and no database beyond what the tier's run already has; it counts tests that ran, so a
 quarantined `protected` test is not in it. A tier with none says `0`. A preset older than 0.1.3 writes no count and
 the line says `protected not reported`, never `0`. The count is reported, not gated: floors are unchanged.
+
+### The docs gate
+
+`docs` is red when a doc names something the diff took away. It compares `HEAD` with `--base=<ref>` (default
+`origin/main`, or `docs.base`), collects the paths the diff removes or renames (a directory with no file left counts)
+and the `package.json` / `pyproject` `[project.scripts]` names it removes or renames, and looks for them in
+`README.md`, `docs/**/*.md` and `CLAUDE.md` as a backticked path, a link target, or (scripts) a backticked
+`pnpm <name>` / `pnpm run <name>` / `npm run <name>` / `yarn <name>` / `uv run <name>`. Output:
+`file:line: names <old>, which this change removed|renamed to <new>`. `test-gates --only=docs --all` is the full scan:
+every backticked path in those files that is not in the tree (fenced blocks skipped). Optional config:
+
+```jsonc
+"docs": { "base": "origin/main", "globs": ["notes/*.md"], "ignore": ["dist/*", "src/legacy.ts"] }
+```
+
+With no base ref to compare the gate does a full scan; an explicit base that does not resolve is red.
 
 ## What the guards do not catch
 

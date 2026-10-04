@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import { GATE_NAMES, UsageError, loadConfig, runGates } from './gates.js';
-const usage = `usage: test-gates [--only=<gate>[,<gate>...]] [--raise-floors] [--config=<file>]\n  gates: ${GATE_NAMES.join(', ')}`;
+const usage = `usage: test-gates [--only=<gate>[,<gate>...]] [--raise-floors] [--config=<file>] [--base=<ref>] [--all]\n  gates: ${GATE_NAMES.join(', ')}`;
 async function main() {
     const args = process.argv.slice(2);
     let only;
     let raiseFloors = false;
     let configFile;
+    let base;
+    let all = false;
     for (const arg of args) {
         if (arg.startsWith('--only=')) {
             only = arg.slice('--only='.length).split(',');
@@ -15,13 +17,17 @@ async function main() {
         }
         else if (arg === '--raise-floors')
             raiseFloors = true;
+        else if (arg.startsWith('--base='))
+            base = arg.slice('--base='.length);
+        else if (arg === '--all')
+            all = true;
         else if (arg.startsWith('--config='))
             configFile = arg.slice('--config='.length);
         else
             throw new UsageError(`unknown argument "${arg}"`);
     }
     const root = process.cwd();
-    const { red } = await runGates(root, loadConfig(root, configFile), { only, raiseFloors });
+    const { red } = await runGates(root, loadConfig(root, configFile), { only, raiseFloors, base, all });
     process.exit(red ? 1 : 0);
 }
 main().catch((error) => {

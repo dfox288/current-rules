@@ -1,5 +1,18 @@
 # Presets changelog
 
+## Unreleased
+
+- gate script, both stacks: a new gate `docs` (runs after `typecheck`, before the tiers). It compares the tree with its
+  base (`--base=<ref>`, default `origin/main`; `docs.base` in `gates.config.json`) and is red when `README.md`,
+  `docs/**/*.md` or `CLAUDE.md` still name, in backticks or as a link target, a path the diff removed or renamed, or a
+  `package.json` / `pyproject` (`[project.scripts]`) script it removed or renamed. Each hit is
+  `file:line: names <old>, which this change removed|renamed to <new>`. `--all` is the full scan: every backticked path
+  in those files that is not in the tree (fenced blocks skipped). `docs.globs` adds doc files, `docs.ignore` keeps a
+  name. With no base ref to compare (a fresh clone, no `origin/main`) the gate does a full scan; an explicit
+  `--base` that does not resolve is red, not measured. A repo gets the gate by repinning `@dfox288/test-gates`; its
+  first run may be red on lines that were already stale, which the repin commit fixes. The rule is in
+  `dfox288/standard.md`, "Docs and changelog". (horizon-surveyor#149)
+
 ## 0.1.4 (2026-10-04)
 
 - vitest preset: an untagged test in the `nuxt` project counts as medium, not small. A `nuxt` test boots Nuxt
