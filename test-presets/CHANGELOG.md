@@ -1,4 +1,4 @@
-# Presets changelog
+# Test-presets changelog
 
 ## Unreleased
 
@@ -18,6 +18,15 @@
   doc does not count as a hit for a moved folder of that name; `docs.ignore` handles paths inside it. A repo gets the gate by repinning `@dfox288/test-gates`; its
   first run may be red on lines that were already stale, which the repin commit fixes. The rule is in
   `dfox288/standard.md`, "Docs and changelog". (horizon-surveyor#149)
+
+## 0.1.5 (2026-10-05)
+
+- rename: `presets/` is now `test-presets/`, and the release tag prefix is `test-presets-v*` (this release: `test-presets-v0.1.5`);
+  `.github/workflows/presets.yml` and `presets-release.yml` are now `test-presets.yml` and `test-presets-release.yml`.
+  Package names are unchanged. Nothing else changed; the versions are bumped to 0.1.5 to match the tag.
+  Apps move from the GitHub tarball pins (`github:dfox288/current-rules#presets-v0.1.4&path:/presets/...`) to the
+  registry versions (`0.1.5`); the pytest package stays a git dependency (`subdirectory = "test-presets/pytest"`,
+  `tag = "test-presets-v0.1.5"`). (horizon-surveyor#183)
 
 ## 0.1.4 (2026-10-04)
 

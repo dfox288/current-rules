@@ -1,4 +1,4 @@
-# Presets
+# Test-presets
 
 What `testing.md` and the bindings (`bindings/nuxt-ts.md`, `bindings/python.md`) say a repo's test setup is made of,
 as installable code. A repo installs a preset as a git dependency pinned to a tag and adds only its project list and
@@ -13,15 +13,16 @@ its justified differences.
 
 ## Install
 
-Tag `presets-v0.1.4`. Syntax checked against the docs (pnpm: "Install from a
+Tag `test-presets-v0.1.5`. The two npm packages come from the private registry (see "Release and registry install"
+below); the pytest package is a git dependency. Syntax checked against the docs (pnpm: "Install from a
 subdirectory of a Git repository", pnpm.io/package-sources; uv: "Dependency sources, Git, subdirectory",
 docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from this repo's branch.
 
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "github:dfox288/current-rules#presets-v0.1.4&path:/presets/vitest",
-  "@dfox288/test-gates": "github:dfox288/current-rules#presets-v0.1.4&path:/presets/gates"
+  "@dfox288/test-preset-vitest": "0.1.5",
+  "@dfox288/test-gates": "0.1.5"
 }
 ```
 
@@ -31,7 +32,7 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 test = ["dfox288-test-preset", "<the repo's DB driver, if it has a database>"]
 
 [tool.uv.sources]
-dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "presets/pytest", tag = "presets-v0.1.4" }
+dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.1.5" }
 ```
 
 pnpm fetches a GitHub dependency as a tarball (no `git` needed); uv runs `git`. The built JavaScript (`dist/`) is
@@ -48,8 +49,8 @@ Cutting a release:
 
 1. Bump `version` in `vitest/package.json` and `gates/package.json` to the same number, run `pnpm build` where `src`
    changed, move the CHANGELOG's Unreleased entries under the new version, merge to `main`.
-2. Tag the merge commit `presets-vX.Y.Z` and push the tag.
-3. `.github/workflows/presets-release.yml` builds and tests both packages, then publishes them. It fails before
+2. Tag the merge commit `test-presets-vX.Y.Z` and push the tag.
+3. `.github/workflows/test-presets-release.yml` builds and tests both packages, then publishes them. It fails before
    publishing when the tag differs from either `package.json` version, when `dist/` is stale, or when the version is
    already on the registry (nothing is overwritten). Credentials come from Infisical by OIDC. A manual dispatch is a
    dry run (packs both, prints the file lists, publishes nothing).
@@ -60,8 +61,8 @@ and CI gets read auth the way landfall-ui's workflows do):
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.1.4",
-  "@dfox288/test-gates": "0.1.4"
+  "@dfox288/test-preset-vitest": "0.1.5",
+  "@dfox288/test-gates": "0.1.5"
 }
 ```
 
@@ -168,11 +169,11 @@ uses private members of pytest, pytest-timeout and `tempfile`; those are pinned 
 
 ## Proof
 
-`.github/workflows/presets.yml` runs `check:dist`, the gate script's unit tests and the four break-it runs on every pull
+`.github/workflows/test-presets.yml` runs `check:dist`, the gate script's unit tests and the four break-it runs on every pull
 request and push to main. `fixtures/break-it.ts` plants each violation and checks the run is red for the stated reason:
 
 ```
-TEST_DATABASE_URL=postgres://... node presets/fixtures/break-it.ts <vitest|pytest|gates|gates-pytest> [filter]
+TEST_DATABASE_URL=postgres://... node test-presets/fixtures/break-it.ts <vitest|pytest|gates|gates-pytest> [filter]
 ```
 
 `refresh-nuxt.sh` and `refresh-pytest.sh` reinstall a changed preset into its fixture.

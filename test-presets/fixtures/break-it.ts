@@ -1,4 +1,4 @@
-// Break-it for the presets: plants each violation in the matching fixture, runs the fixture's tests
+// Break-it for the test-presets: plants each violation in the matching fixture, runs the fixture's tests
 // through the preset, and checks the run is red for the stated reason (exit code and message). A planted
 // file is always removed again. Usage: node break-it.ts <vitest|pytest|gates> [case-name-filter]
 //
