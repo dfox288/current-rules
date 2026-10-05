@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-10-06)
+
 - vitest preset and gate script: Vitest 5. The peer `vitest` is `5.0.3` (exact, as before: the reporter and plugin use members
   Vitest does not type); an app repins `vitest`, `@vitest/ui` and `@vitest/coverage-v8` to 5.0.3 with it. Vitest 5 needs
   Node >= 22.12, Vite >= 6.4 and `@nuxt/test-utils` >= 4.3.2. Its default changes reach tests, not the preset: `clearMocks`
@@ -38,7 +40,7 @@
   first run may be red on lines that were already stale, which the repin commit fixes. The rule is in
   `dfox288/standard.md`, "Docs and changelog". (horizon-surveyor#149)
 
-## 0.1.5 (2026-10-05)
+## 0.1.5 (2026-10-05, never tagged: shipped in 0.2.0)
 
 - rename: `presets/` is now `test-presets/`, and the release tag prefix is `test-presets-v*` (this release: `test-presets-v0.1.5`);
   `.github/workflows/presets.yml` and `presets-release.yml` are now `test-presets.yml` and `test-presets-release.yml`.
