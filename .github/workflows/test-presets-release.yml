@@ -1,15 +1,15 @@
 # Publishes the two presets packages (@dfox288/test-preset-vitest, @dfox288/test-gates)
-# to the private npm registry when a `presets-v*` tag is pushed. A manual
+# to the private npm registry when a `test-presets-v*` tag is pushed. A manual
 # dispatch defaults to a dry run: it packs both packages and prints what it
 # would publish. No credential is stored in GitHub: the only input is the
 # repository variable INFISICAL_RELEASE_IDENTITY_ID; the registry auth values
 # are fetched by Infisical OIDC and live in files under $RUNNER_TEMP that the
 # last step clears (same shape as landfall-ui's release workflow).
-name: presets-release
+name: test-presets-release
 
 on:
   push:
-    tags: ['presets-v*']
+    tags: ['test-presets-v*']
   workflow_dispatch:
     inputs:
       dry-run:
@@ -18,7 +18,7 @@ on:
         default: true
 
 concurrency:
-  group: presets-release
+  group: test-presets-release
   cancel-in-progress: false
 
 permissions:
@@ -28,7 +28,7 @@ env:
   REGISTRY: https://npm.registry.tastatur-und-maus.net/
 
 jobs:
-  # Same build and test steps as presets.yml. No registry credentials here.
+  # Same build and test steps as test-presets.yml. No registry credentials here.
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -63,33 +63,33 @@ jobs:
 
       - name: Install the TypeScript packages
         run: |
-          pnpm -C presets/vitest install --frozen-lockfile
-          pnpm -C presets/gates install --frozen-lockfile
+          pnpm -C test-presets/vitest install --frozen-lockfile
+          pnpm -C test-presets/gates install --frozen-lockfile
 
       - name: dist is fresh (vitest)
-        run: pnpm -C presets/vitest check:dist
+        run: pnpm -C test-presets/vitest check:dist
       - name: Reporter unit tests (vitest)
-        run: pnpm -C presets/vitest test
+        run: pnpm -C test-presets/vitest test
       - name: dist is fresh (gates)
-        run: pnpm -C presets/gates check:dist
+        run: pnpm -C test-presets/gates check:dist
       - name: Gate script unit tests
-        run: pnpm -C presets/gates test
+        run: pnpm -C test-presets/gates test
 
       - name: Install the fixtures
         run: |
           # not frozen: pnpm cannot freeze a `file:` dependency on a package that has optional peers
-          pnpm -C presets/fixtures/nuxt-app install --no-frozen-lockfile
-          pnpm -C presets/fixtures/nuxt-app exec playwright install --with-deps chromium
-          uv sync --project presets/fixtures/python-pkg --group test --frozen
+          pnpm -C test-presets/fixtures/nuxt-app install --no-frozen-lockfile
+          pnpm -C test-presets/fixtures/nuxt-app exec playwright install --with-deps chromium
+          uv sync --project test-presets/fixtures/python-pkg --group test --frozen
 
       - name: Break-it, Vitest preset
-        run: node presets/fixtures/break-it.ts vitest
+        run: node test-presets/fixtures/break-it.ts vitest
       - name: Break-it, pytest preset
-        run: node presets/fixtures/break-it.ts pytest
+        run: node test-presets/fixtures/break-it.ts pytest
       - name: Break-it, gate script on the Nuxt fixture
-        run: node presets/fixtures/break-it.ts gates
+        run: node test-presets/fixtures/break-it.ts gates
       - name: Break-it, gate script on the Python fixture
-        run: node presets/fixtures/break-it.ts gates-pytest
+        run: node test-presets/fixtures/break-it.ts gates-pytest
 
   publish:
     needs: verify
@@ -106,25 +106,25 @@ jobs:
           persist-credentials: false
 
       # Before any login: the tag and both package.json versions must agree.
-      # A real publish runs from a presets-v* tag only.
+      # A real publish runs from a test-presets-v* tag only.
       - name: Versions match the tag
         env:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          vitest_version="$(node -p "require('./presets/vitest/package.json').version")"
-          gates_version="$(node -p "require('./presets/gates/package.json').version")"
+          vitest_version="$(node -p "require('./test-presets/vitest/package.json').version")"
+          gates_version="$(node -p "require('./test-presets/gates/package.json').version")"
           echo "vitest preset $vitest_version, gates $gates_version"
           if [ "$vitest_version" != "$gates_version" ]; then
             echo "::error::the two package.json versions differ ($vitest_version vs $gates_version); they are released together"
             exit 1
           fi
           if [ "$DRY_RUN" != "true" ] && [ "$REF_TYPE" != "tag" ]; then
-            echo "::error::a real publish runs from a presets-v* tag only (this run is on $REF_TYPE $REF_NAME); dispatch a dry run instead"
+            echo "::error::a real publish runs from a test-presets-v* tag only (this run is on $REF_TYPE $REF_NAME); dispatch a dry run instead"
             exit 1
           fi
-          if [ "$REF_TYPE" = "tag" ] && [ "$REF_NAME" != "presets-v$vitest_version" ]; then
-            echo "::error::tag $REF_NAME does not match the package versions (expected presets-v$vitest_version)"
+          if [ "$REF_TYPE" = "tag" ] && [ "$REF_NAME" != "test-presets-v$vitest_version" ]; then
+            echo "::error::tag $REF_NAME does not match the package versions (expected test-presets-v$vitest_version)"
             exit 1
           fi
           echo "VERSION=$vitest_version" >> "$GITHUB_ENV"
@@ -139,15 +139,15 @@ jobs:
       - name: Install and check dist
         run: |
           for pkg in vitest gates; do
-            pnpm -C "presets/$pkg" install --frozen-lockfile
-            pnpm -C "presets/$pkg" check:dist
+            pnpm -C "test-presets/$pkg" install --frozen-lockfile
+            pnpm -C "test-presets/$pkg" check:dist
           done
 
       - name: Pack both packages
         run: |
           mkdir -p "$RUNNER_TEMP/packs"
           for pkg in vitest gates; do
-            pnpm -C "presets/$pkg" pack --pack-destination "$RUNNER_TEMP/packs"
+            pnpm -C "test-presets/$pkg" pack --pack-destination "$RUNNER_TEMP/packs"
           done
           for tgz in "$RUNNER_TEMP"/packs/*.tgz; do
             echo "== $tgz"
@@ -180,7 +180,7 @@ jobs:
             "//npm.registry.tastatur-und-maus.net/:_auth=${NPM_READ_AUTH:?NPM_READ_AUTH was not fetched}" > "$READ_AUTH_FILE"
           echo "NPM_READ_AUTH=" >> "$GITHUB_ENV"
           for pkg in vitest gates; do
-            name="$(node -p "require('./presets/$pkg/package.json').name")"
+            name="$(node -p "require('./test-presets/$pkg/package.json').name")"
             rc=0
             out="$(npm view "$name@$VERSION" version --registry "$REGISTRY" --userconfig "$READ_AUTH_FILE" 2>&1)" || rc=$?
             if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
@@ -222,7 +222,7 @@ jobs:
             "//npm.registry.tastatur-und-maus.net/:_auth=${NPM_PUBLISH_AUTH:?NPM_PUBLISH_AUTH was not fetched}" > "$PUBLISH_AUTH_FILE"
           echo "NPM_PUBLISH_AUTH=" >> "$GITHUB_ENV"
           for pkg in vitest gates; do
-            PNPM_CONFIG_NPMRC_AUTH_FILE="$PUBLISH_AUTH_FILE" pnpm -C "presets/$pkg" publish --no-git-checks --registry "$REGISTRY"
+            PNPM_CONFIG_NPMRC_AUTH_FILE="$PUBLISH_AUTH_FILE" pnpm -C "test-presets/$pkg" publish --no-git-checks --registry "$REGISTRY"
           done
 
       - name: Clear the registry auth files

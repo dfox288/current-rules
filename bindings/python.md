@@ -32,7 +32,7 @@ reviewer checks them.)*
 
 Each repo installs the pytest preset and the shared gate script from the public preset repo, as a git dependency
 pinned to a tag. Until a repo has migrated, its own scripts and README apply. Install syntax and the options are in
-`presets/README.md`.
+`test-presets/README.md`.
 
 The preset sets:
 

@@ -1,4 +1,4 @@
-name: presets
+name: test-presets
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  presets:
+  test-presets:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -41,30 +41,30 @@ jobs:
 
       - name: Install the TypeScript packages
         run: |
-          pnpm -C presets/vitest install --frozen-lockfile
-          pnpm -C presets/gates install --frozen-lockfile
+          pnpm -C test-presets/vitest install --frozen-lockfile
+          pnpm -C test-presets/gates install --frozen-lockfile
 
       - name: dist is fresh (vitest)
-        run: pnpm -C presets/vitest check:dist
+        run: pnpm -C test-presets/vitest check:dist
       - name: Reporter unit tests (vitest)
-        run: pnpm -C presets/vitest test
+        run: pnpm -C test-presets/vitest test
       - name: dist is fresh (gates)
-        run: pnpm -C presets/gates check:dist
+        run: pnpm -C test-presets/gates check:dist
       - name: Gate script unit tests
-        run: pnpm -C presets/gates test
+        run: pnpm -C test-presets/gates test
 
       - name: Install the fixtures
         run: |
           # not frozen: pnpm cannot freeze a `file:` dependency on a package that has optional peers
-          pnpm -C presets/fixtures/nuxt-app install --no-frozen-lockfile
-          pnpm -C presets/fixtures/nuxt-app exec playwright install --with-deps chromium
-          uv sync --project presets/fixtures/python-pkg --group test --frozen
+          pnpm -C test-presets/fixtures/nuxt-app install --no-frozen-lockfile
+          pnpm -C test-presets/fixtures/nuxt-app exec playwright install --with-deps chromium
+          uv sync --project test-presets/fixtures/python-pkg --group test --frozen
 
       - name: Break-it, Vitest preset
-        run: node presets/fixtures/break-it.ts vitest
+        run: node test-presets/fixtures/break-it.ts vitest
       - name: Break-it, pytest preset
-        run: node presets/fixtures/break-it.ts pytest
+        run: node test-presets/fixtures/break-it.ts pytest
       - name: Break-it, gate script on the Nuxt fixture
-        run: node presets/fixtures/break-it.ts gates
+        run: node test-presets/fixtures/break-it.ts gates
       - name: Break-it, gate script on the Python fixture
-        run: node presets/fixtures/break-it.ts gates-pytest
+        run: node test-presets/fixtures/break-it.ts gates-pytest
