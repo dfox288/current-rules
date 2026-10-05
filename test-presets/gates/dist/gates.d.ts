@@ -44,13 +44,37 @@ export type Floors = Partial<Record<Tier, number>>;
 export declare function loadConfig(root: string, file?: string): GatesConfig;
 export declare class UsageError extends Error {
 }
+/** One run of a tier. `list`, when set, is the static scan whose files the run is restricted to. */
+export interface TierRun {
+    argv: string[];
+    list?: string[];
+}
 /**
- * The argv of each run that makes up a tier. Stack-specific, one place. A Vitest tag filter cannot say "everything in
+ * The runs that make up a tier. Stack-specific, one place. A Vitest tag filter cannot say "everything in
  * the nuxt project, plus the medium-tagged tests of the others", so the nuxt project (every test there boots Nuxt, so
  * the preset counts it medium) runs on its own in the medium tier, and the small tier leaves it out. Run and count
  * then agree. A `commands` override and the pytest stack are one run.
+ *
+ * Vitest filters tags only after a file is collected, so `--tags-filter=medium` alone sets up every file of the
+ * project (hundreds in a big app) to run a few. The medium run of the tag-selected projects therefore carries a
+ * `list`: `vitest list --tags-filter medium --json` parses the files statically (Vitest 5), and the run is
+ * restricted to those files. The run keeps its `--tags-filter`, so a file that also holds untagged tests still
+ * counts only the medium ones. The small run is not scanned: it would save the setup of the few medium files only,
+ * and a file whose tests are all generated (`it.each`) is invisible to the scan and would silently drop out of it.
  */
+export declare function tierRuns(config: GatesConfig, tier: Tier): TierRun[];
+/** The argv of each run of a tier, without the file selection. */
 export declare function tierCommands(config: GatesConfig, tier: Tier): string[][];
+export type Selection = {
+    files: string[];
+} | {
+    error: string;
+};
+/**
+ * Runs a `vitest list --json` command and returns the files it names, absolute, once each, sorted. Never
+ * guesses: a command that cannot start, exits non-zero or prints something else is an `error` with the reason.
+ */
+export declare function selectFiles(list: string[], cwd: string): Selection;
 /** Adds the summaries of the runs of one tier into one. */
 export declare function mergeSummaries(parts: RunSummary[]): RunSummary;
 export interface GateResult {

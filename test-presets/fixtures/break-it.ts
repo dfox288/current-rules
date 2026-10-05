@@ -336,6 +336,28 @@ const gatesCases: Case[] = [
     message: /GATE RED: small \(exit 1\)/,
   },
   {
+    name: 'control: the medium tier selected by the static scan counts what a full collection did',
+    plant: [],
+    command: [...gatesRun, '--only=medium'],
+    expect: 'green',
+    message: /medium +OK +\d+s +3 tests, 2 files \(floor 3\)/,
+  },
+  {
+    name: 'a medium test in a new file is selected by the scan, with no file list to keep',
+    plant: [{ from: 'medium-extra.test.ts', to: 'test/unit/medium-extra.test.ts' }],
+    command: [...gatesRun, '--only=medium'],
+    expect: 'green',
+    message: /medium +OK +\d+s +4 tests, 3 files \(floor 3\)/,
+  },
+  {
+    name: 'a vitest list that fails turns the tier red with the reason, never a run of nothing',
+    plant: [],
+    command: [...gatesRun, '--only=medium'],
+    expect: 'red',
+    message: /GATE RED: medium \(vitest list failed: exit 1 from pnpm exec vitest list .*planted config failure/,
+    prepare: withFile('vitest.config.ts', "throw new Error('planted config failure')\n"),
+  },
+  {
     name: 'a tier whose run writes no summary is NOT MEASURED, not green',
     plant: [],
     command: [...gatesRun, '--only=small', '--config=.tmp/no-preset.config.json'],

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- vitest preset and gate script: Vitest 5. The peer `vitest` is `5.0.3` (exact, as before: the reporter and plugin use members
+  Vitest does not type); an app repins `vitest`, `@vitest/ui` and `@vitest/coverage-v8` to 5.0.3 with it. Vitest 5 needs
+  Node >= 22.12, Vite >= 6.4 and `@nuxt/test-utils` >= 4.3.2. Its default changes reach tests, not the preset: `clearMocks`
+  is on, a happy-dom/jsdom window is mutable (`globalThis.navigator = ...` now throws, use `Object.defineProperty`), a
+  hoisted `vi.mock` outside the top level throws, an unawaited `resolves`/`rejects` fails the test.
+- gate script, Vitest stack: the medium run of the tag-selected projects (`unit` and the like; not `nuxt`, which already
+  runs whole) is restricted to the files `vitest list --tags-filter medium --project <p> --json` names. That scan is
+  static (about 2 s) and sets up no file, where `--tags-filter` on a run sets up every file of the project first (beacon:
+  612 files to run 22). The run keeps its `--tags-filter`, so counts, floors, protected counts and the summary are the
+  same as before. A `vitest list` that cannot start, exits non-zero or prints no JSON turns the tier red with the reason
+  (`vitest list failed: ...`); a scan that finds no file runs nothing and the tier is red as a zero-test tier; neither
+  falls back to a full run. The small tier is not scanned (it would save the setup of a few medium files, and a file
+  whose tests are all generated, such as `it.each`, is invisible to the static scan). A test that only the scan cannot
+  see, one generated with a tag, is not selected; the floor catches the drop in count. A `commands.medium` override still
+  replaces the whole selection.
 - release: `presets-release.yml` publishes both npm packages to the private registry on a `presets-v*` tag; both `package.json`
   files carry `publishConfig.registry`. (horizon-surveyor#123)
 - gate script, both stacks: a new gate `docs` (runs after `typecheck`, before the tiers). It compares the tree with its

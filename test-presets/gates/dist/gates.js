@@ -2,9 +2,9 @@
 //   lint, format, typecheck, small, medium, large, build
 // lint and format run first and stop the run when red; the others run on and the summary names every red
 // gate. A gate is never piped: each command is spawned directly and its exit code is the gate's result.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, createWriteStream } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 export const GATE_NAMES = ['lint', 'format', 'typecheck', 'docs', 'small', 'medium', 'large', 'build'];
 const TIERS = ['small', 'medium', 'large'];
 export function loadConfig(root, file = 'gates.config.json') {
@@ -19,39 +19,100 @@ export function loadConfig(root, file = 'gates.config.json') {
 export class UsageError extends Error {
 }
 /**
- * The argv of each run that makes up a tier. Stack-specific, one place. A Vitest tag filter cannot say "everything in
+ * The runs that make up a tier. Stack-specific, one place. A Vitest tag filter cannot say "everything in
  * the nuxt project, plus the medium-tagged tests of the others", so the nuxt project (every test there boots Nuxt, so
  * the preset counts it medium) runs on its own in the medium tier, and the small tier leaves it out. Run and count
  * then agree. A `commands` override and the pytest stack are one run.
+ *
+ * Vitest filters tags only after a file is collected, so `--tags-filter=medium` alone sets up every file of the
+ * project (hundreds in a big app) to run a few. The medium run of the tag-selected projects therefore carries a
+ * `list`: `vitest list --tags-filter medium --json` parses the files statically (Vitest 5), and the run is
+ * restricted to those files. The run keeps its `--tags-filter`, so a file that also holds untagged tests still
+ * counts only the medium ones. The small run is not scanned: it would save the setup of the few medium files only,
+ * and a file whose tests are all generated (`it.each`) is invisible to the scan and would silently drop out of it.
  */
-export function tierCommands(config, tier) {
+export function tierRuns(config, tier) {
     const own = config.commands?.[tier];
     if (own)
-        return [own];
+        return [{ argv: own }];
     if (config.stack === 'vitest') {
         const base = ['pnpm', 'exec', 'vitest', 'run'];
         const projects = (names) => names.flatMap((p) => ['--project', p]);
         if (tier === 'large')
-            return [[...base, ...projects(config.projects?.large ?? ['e2e'])]];
+            return [{ argv: [...base, ...projects(config.projects?.large ?? ['e2e'])] }];
         const smallMedium = config.projects?.smallMedium ?? ['unit', 'nuxt'];
         const nuxt = smallMedium.filter((p) => p === 'nuxt');
         const others = smallMedium.filter((p) => p !== 'nuxt');
         const runs = [];
         if (others.length > 0)
-            runs.push([
-                ...base,
-                ...projects(others),
-                '--tags-filter',
-                tier === 'small' ? '!medium' : 'medium',
-                ...(nuxt.length > 0 ? ['--passWithNoTests'] : []),
-            ]);
+            runs.push({
+                argv: [
+                    ...base,
+                    ...projects(others),
+                    '--tags-filter',
+                    tier === 'small' ? '!medium' : 'medium',
+                    ...(nuxt.length > 0 ? ['--passWithNoTests'] : []),
+                ],
+                ...(tier === 'medium'
+                    ? { list: ['pnpm', 'exec', 'vitest', 'list', '--tags-filter', 'medium', ...projects(others), '--json'] }
+                    : {}),
+            });
         if (tier === 'medium' && nuxt.length > 0)
-            runs.push([...base, ...projects(nuxt)]);
+            runs.push({ argv: [...base, ...projects(nuxt)] });
         return runs;
     }
     const marker = tier === 'small' ? 'not medium and not large' : tier === 'medium' ? 'medium' : 'large';
-    return [['uv', 'run', '--group', 'test', 'pytest', '-m', marker]];
+    return [{ argv: ['uv', 'run', '--group', 'test', 'pytest', '-m', marker] }];
 }
+/** The argv of each run of a tier, without the file selection. */
+export function tierCommands(config, tier) {
+    return tierRuns(config, tier).map((r) => r.argv);
+}
+/**
+ * Runs a `vitest list --json` command and returns the files it names, absolute, once each, sorted. Never
+ * guesses: a command that cannot start, exits non-zero or prints something else is an `error` with the reason.
+ */
+export function selectFiles(list, cwd) {
+    const r = spawnSync(list[0], list.slice(1), { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+    const shown = list.join(' ');
+    if (r.error)
+        return { error: `vitest list failed: could not start ${shown}: ${r.error.message}` };
+    if (r.status !== 0) {
+        const reason = (r.stderr || r.stdout || '').split('\n').filter((l) => l.trim()).slice(0, 5).join(' | ');
+        return { error: `vitest list failed: exit ${r.status ?? r.signal} from ${shown}: ${reason}` };
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(r.stdout);
+    }
+    catch {
+        return { error: `vitest list failed: no JSON on stdout of ${shown}: ${r.stdout.trim().slice(0, 200)}` };
+    }
+    if (!Array.isArray(parsed))
+        return { error: `vitest list failed: the JSON of ${shown} is not a list` };
+    const files = new Set();
+    for (const entry of parsed) {
+        const file = entry?.file;
+        if (typeof file !== 'string')
+            return { error: `vitest list failed: an entry of ${shown} has no file` };
+        files.add(isAbsolute(file) ? file : resolve(cwd, file));
+    }
+    return { files: [...files].sort() };
+}
+const emptySummary = () => ({
+    files: 0,
+    tests: 0,
+    skipped: 0,
+    quarantined: 0,
+    failed: 0,
+    flaky: [],
+    retriedBeyondRules: [],
+    tiers: {
+        small: { files: 0, tests: 0, protected: 0 },
+        medium: { files: 0, tests: 0, protected: 0 },
+        large: { files: 0, tests: 0, protected: 0 },
+    },
+});
 /** Adds the summaries of the runs of one tier into one. */
 export function mergeSummaries(parts) {
     const sum = (f) => parts.reduce((n, s) => n + f(s), 0);
@@ -154,10 +215,27 @@ export async function runGates(root, config, options = {}) {
                 continue;
             }
             console.log(`\n=== ${name} ===`);
-            const commands = tierCommands(config, tier);
+            const commands = tierRuns(config, tier);
             let code = commands.length === 0 ? 1 : 0;
+            let selectionError;
             const parts = [];
-            for (const [i, argv] of commands.entries()) {
+            for (const [i, run] of commands.entries()) {
+                let argv = run.argv;
+                if (run.list) {
+                    const selection = selectFiles(run.list, root);
+                    if ('error' in selection) {
+                        console.log(`gates: ${selection.error}`);
+                        selectionError ??= selection.error;
+                        continue;
+                    }
+                    console.log(`gates: ${name}: vitest list selected ${selection.files.length} files`);
+                    // Nothing selected is nothing to run: a run with no file argument would collect everything.
+                    if (selection.files.length === 0) {
+                        parts.push(emptySummary());
+                        continue;
+                    }
+                    argv = [...argv, ...selection.files];
+                }
                 const suffix = commands.length > 1 ? `.${i + 1}` : '';
                 const summaryPath = join(root, '.tmp', 'gates', `${name}${suffix}.summary.json`);
                 rmSync(summaryPath, { force: true });
@@ -172,7 +250,9 @@ export async function runGates(root, config, options = {}) {
             }
             // a run that wrote no summary leaves the tier unmeasured
             const summary = parts.length === commands.length && parts.length > 0 ? mergeSummaries(parts) : undefined;
-            const judged = judgeTier(tier, code, summary, floors);
+            const judged = selectionError
+                ? { failure: selectionError, detail: '' }
+                : judgeTier(tier, code, summary, floors);
             results.push({
                 name,
                 status: judged.failure ? 'failed' : 'ok',
