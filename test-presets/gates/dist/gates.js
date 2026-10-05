@@ -4,7 +4,7 @@
 // gate. A gate is never piped: each command is spawned directly and its exit code is the gate's result.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, createWriteStream } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 export const GATE_NAMES = ['lint', 'format', 'typecheck', 'docs', 'small', 'medium', 'large', 'build'];
 const TIERS = ['small', 'medium', 'large'];
 export function loadConfig(root, file = 'gates.config.json') {
@@ -69,6 +69,17 @@ export function tierCommands(config, tier) {
     return tierRuns(config, tier).map((r) => r.argv);
 }
 /**
+ * The cross-check of the static scan: the files the small run saw medium-tagged tests in (it collects every file) that
+ * the scan did not select, so their medium tests never ran. Sorted. `undefined` when the small run's list is not known
+ * (small did not run in this invocation, a `commands.small` override, or a preset that does not write it).
+ */
+export function missedByScan(seen, selected) {
+    if (!seen)
+        return undefined;
+    const chosen = new Set(selected);
+    return seen.filter((f) => !chosen.has(f)).sort();
+}
+/**
  * Runs a `vitest list --json` command and returns the files it names, absolute, once each, sorted. Never
  * guesses: a command that cannot start, exits non-zero or prints something else is an `error` with the reason.
  */
@@ -107,6 +118,7 @@ const emptySummary = () => ({
     failed: 0,
     flaky: [],
     retriedBeyondRules: [],
+    mediumFiles: [],
     tiers: {
         small: { files: 0, tests: 0, protected: 0 },
         medium: { files: 0, tests: 0, protected: 0 },
@@ -134,6 +146,9 @@ export function mergeSummaries(parts) {
         flaky: parts.flatMap((s) => s.flaky),
         retriedBeyondRules: parts.flatMap((s) => s.retriedBeyondRules),
         tiers,
+        ...(parts.every((s) => s.mediumFiles)
+            ? { mediumFiles: [...new Set(parts.flatMap((s) => s.mediumFiles ?? []))].sort() }
+            : {}),
     };
 }
 /** Judges a finished tier run against the count guard. Returns a failure text, or undefined if it holds. */
@@ -198,6 +213,10 @@ export async function runGates(root, config, options = {}) {
     const tiers = config.tiers ?? [...TIERS];
     const results = [];
     let stop = false;
+    /** The medium files the small run saw, and the files the medium scan selected: the scan's cross-check. */
+    let mediumSeen;
+    const scanned = [];
+    let scannedAny = false;
     for (const name of GATE_NAMES) {
         if (options.only && !options.only.includes(name))
             continue;
@@ -229,6 +248,8 @@ export async function runGates(root, config, options = {}) {
                         continue;
                     }
                     console.log(`gates: ${name}: vitest list selected ${selection.files.length} files`);
+                    scanned.push(...selection.files);
+                    scannedAny = true;
                     // Nothing selected is nothing to run: a run with no file argument would collect everything.
                     if (selection.files.length === 0) {
                         parts.push(emptySummary());
@@ -250,9 +271,23 @@ export async function runGates(root, config, options = {}) {
             }
             // a run that wrote no summary leaves the tier unmeasured
             const summary = parts.length === commands.length && parts.length > 0 ? mergeSummaries(parts) : undefined;
-            const judged = selectionError
+            if (tier === 'small')
+                mediumSeen = summary?.mediumFiles;
+            let judged = selectionError
                 ? { failure: selectionError, detail: '' }
                 : judgeTier(tier, code, summary, floors);
+            if (tier === 'medium' && scannedAny && !selectionError) {
+                const missed = missedByScan(mediumSeen, scanned);
+                if (missed === undefined)
+                    console.log('gates: medium: the static scan is not cross-checked (the small run did not report its medium files in this run)');
+                else if (missed.length > 0) {
+                    const named = missed.map((f) => relative(root, f)).join(', ');
+                    const failure = `medium-tagged tests in files the static scan did not select, so they never ran: ${named}`;
+                    judged = { failure: judged.failure ? `${judged.failure}; ${failure}` : failure, detail: judged.detail };
+                }
+                else
+                    console.log('gates: medium: the static scan selected every file the small run saw medium tests in');
+            }
             results.push({
                 name,
                 status: judged.failure ? 'failed' : 'ok',

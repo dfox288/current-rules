@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { judgeTier, protectedLines, raiseFloors, mergeSummaries, tierCommands, tierRuns, selectFiles, type GateResult, type RunSummary } from './gates.ts'
+import { judgeTier, protectedLines, raiseFloors, mergeSummaries, tierCommands, tierRuns, selectFiles, missedByScan, type GateResult, type RunSummary } from './gates.ts'
 
 const summary = (small: number, medium = 0, large = 0): RunSummary => ({
   files: 1,
@@ -162,4 +162,28 @@ test('a failing list is an error with the reason, never an empty selection', () 
 test('a list that finds no file is an empty selection the runner must not turn into a bare run', () => {
   const root = mkdtempSync(join(tmpdir(), 'gates-select-'))
   assert.deepEqual(selectFiles(fake('[]'), root), { files: [] })
+})
+
+// The cross-check: the small run collects every file, so it saw each medium-tagged test the static scan may have missed.
+test('control: every file with a medium test was selected by the scan, nothing is missed', () => {
+  assert.deepEqual(missedByScan(['/r/a.test.ts', '/r/b.test.ts'], ['/r/a.test.ts', '/r/b.test.ts', '/r/c.test.ts']), [])
+  assert.deepEqual(missedByScan([], []), [])
+})
+
+test('a file the small run saw medium tests in and the scan did not select is missed, sorted', () => {
+  assert.deepEqual(missedByScan(['/r/z.test.ts', '/r/a.test.ts', '/r/b.test.ts'], ['/r/b.test.ts']), [
+    '/r/a.test.ts',
+    '/r/z.test.ts',
+  ])
+})
+
+test('without the small run\'s list the check is not made, and says so by returning undefined', () => {
+  assert.equal(missedByScan(undefined, ['/r/a.test.ts']), undefined)
+})
+
+test('merged summaries keep the union of their medium files', () => {
+  const a = { ...summary(1), mediumFiles: ['/r/a.test.ts'] }
+  const b = { ...summary(1), mediumFiles: ['/r/b.test.ts', '/r/a.test.ts'] }
+  assert.deepEqual(mergeSummaries([a, b]).mediumFiles, ['/r/a.test.ts', '/r/b.test.ts'])
+  assert.equal(mergeSummaries([summary(1), summary(1)]).mediumFiles, undefined)
 })

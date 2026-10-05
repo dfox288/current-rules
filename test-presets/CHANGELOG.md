@@ -14,8 +14,11 @@
   same as before. A `vitest list` that cannot start, exits non-zero or prints no JSON turns the tier red with the reason
   (`vitest list failed: ...`); a scan that finds no file runs nothing and the tier is red as a zero-test tier; neither
   falls back to a full run. The small tier is not scanned (it would save the setup of a few medium files, and a file
-  whose tests are all generated, such as `it.each`, is invisible to the static scan). A test that only the scan cannot
-  see, one generated with a tag, is not selected; the floor catches the drop in count. A `commands.medium` override still
+  whose tests are all generated, such as `it.each`, is invisible to the static scan). A medium test the scan cannot read (its tag
+  set through a variable) is caught by a cross-check: the preset's run summary gains `mediumFiles` (files where the run
+  saw a medium-tagged test in a unit-like project, skipped ones included), and when small and medium run together the
+  medium gate is red, naming the files, if the scan did not select one of them. `--only=medium` alone prints that it
+  is not cross-checked. A `commands.medium` override still
   replaces the whole selection.
 - release: `presets-release.yml` publishes both npm packages to the private registry on a `presets-v*` tag; both `package.json`
   files carry `publishConfig.registry`. (horizon-surveyor#123)

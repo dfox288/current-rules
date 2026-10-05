@@ -350,6 +350,20 @@ const gatesCases: Case[] = [
     message: /medium +OK +\d+s +4 tests, 3 files \(floor 3\)/,
   },
   {
+    name: 'control: small and medium together, the scan selected every file the small run saw medium tests in',
+    plant: [],
+    command: [...gatesRun, '--only=small,medium'],
+    expect: 'green',
+    message: /the static scan selected every file the small run saw medium tests in/,
+  },
+  {
+    name: 'a medium test whose tag the scan cannot read is red, naming its file',
+    plant: [{ from: 'medium-tags-by-variable.test.ts', to: 'test/unit/medium-tags-by-variable.test.ts' }],
+    command: [...gatesRun, '--only=small,medium'],
+    expect: 'red',
+    message: /GATE RED: medium \(medium-tagged tests in files the static scan did not select, so they never ran: test\/unit\/medium-tags-by-variable\.test\.ts\)/,
+  },
+  {
     name: 'a vitest list that fails turns the tier red with the reason, never a run of nothing',
     plant: [],
     command: [...gatesRun, '--only=medium'],

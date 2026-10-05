@@ -39,6 +39,8 @@ export interface RunSummary {
         tests: number;
         protected?: number;
     }>;
+    /** Files (absolute) with a medium-tagged test the run saw, whatever its state. Absent before preset 0.2. */
+    mediumFiles?: string[];
 }
 export type Floors = Partial<Record<Tier, number>>;
 export declare function loadConfig(root: string, file?: string): GatesConfig;
@@ -65,6 +67,12 @@ export interface TierRun {
 export declare function tierRuns(config: GatesConfig, tier: Tier): TierRun[];
 /** The argv of each run of a tier, without the file selection. */
 export declare function tierCommands(config: GatesConfig, tier: Tier): string[][];
+/**
+ * The cross-check of the static scan: the files the small run saw medium-tagged tests in (it collects every file) that
+ * the scan did not select, so their medium tests never ran. Sorted. `undefined` when the small run's list is not known
+ * (small did not run in this invocation, a `commands.small` override, or a preset that does not write it).
+ */
+export declare function missedByScan(seen: string[] | undefined, selected: string[]): string[] | undefined;
 export type Selection = {
     files: string[];
 } | {

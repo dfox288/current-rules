@@ -111,9 +111,11 @@ On the Vitest stack the medium run of the tag-selected projects (`unit`, not `nu
 `vitest list --tags-filter medium --project <p> --json` (Vitest 5; about 2 s, sets up no file), and runs only those, with
 `--tags-filter` still on the run. Without it Vitest sets up every file of the project to run the few medium ones. Counts,
 floors and the summary are unchanged. A scan that fails (cannot start, non-zero exit, no JSON) is red with the reason
-(`vitest list failed: ...`), never a silent full run or a run of nothing. The small tier is not scanned. A medium test
-the static scan cannot see (generated with `it.each` and tagged) is not selected; the floor catches the drop. The
-guard's own limit: a file added with only such tests is missed until the count falls below the floor.
+(`vitest list failed: ...`), never a silent full run or a run of nothing. The small tier is not scanned. A medium test whose tag the static scan cannot read (the tag set through a variable, say) would not be
+selected and would never run, so the gate cross-checks: the small run collects every file, the preset's summary lists the
+files where it saw a medium-tagged test (`mediumFiles`, skipped ones included), and the medium gate is red, naming each
+file, when the scan did not select one of them. The check needs the small run in the same invocation (`--only=small,medium`
+or no `--only`); with `--only=medium` alone it prints that the scan is not cross-checked.
 
 The gate summary also reports the protected count, one line per tier that ran, right after the gate table:
 
