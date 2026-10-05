@@ -66,7 +66,9 @@ The preset sets:
   `listen(0)` without a host), takes a free port, waits for finite animations to end instead of a fixed timeout, and
   for a phone uses `hasTouch` without `isMobile` (`isMobile` reports 449 for 402) and asserts `innerWidth`. It measures
   what happy-dom can't: hit-tests (`elementFromPoint` at a control's centre), geometry, real pointer and key input,
-  focus after a close, computed values (not class lists). *Check: reviewer reads a new `e2e` file against this list.*
+  focus after a close, computed values (not class lists). An app's fixed port block is for the servers a person or
+  another session opens (dev server, a served build, the Postgres container); a test's own server takes a free port, or
+  two runs of one app collide. *Check: reviewer reads a new `e2e` file against this list.*
 - **[rule]** A shared type (an error class) lives in its own module, not inside a service that many routes import, or
   a change to the service drags their tests into every focused run. *Check: reviewer reads where a new shared type
   lives.*
