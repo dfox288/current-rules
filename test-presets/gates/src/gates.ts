@@ -128,6 +128,16 @@ export function missedByScan(seen: string[] | undefined, selected: string[]): st
   return seen.filter((f) => !chosen.has(f)).sort()
 }
 
+/**
+ * The medium files the small run saw, or `undefined` when the scan cannot be cross-checked: small did not run in this
+ * invocation, a `commands.small` override (its run may cover only some files), or a summary from a preset that does
+ * not write `mediumFiles`. Then the medium run is not scanned: it collects every file, as it did before the scan.
+ */
+export function crossCheckList(config: GatesConfig, small: RunSummary | undefined): string[] | undefined {
+  if (config.commands?.small) return undefined
+  return small?.mediumFiles
+}
+
 export type Selection = { files: string[] } | { error: string }
 
 /**
@@ -318,7 +328,11 @@ export async function runGates(root: string, config: GatesConfig, options: RunOp
       const parts: RunSummary[] = []
       for (const [i, run] of commands.entries()) {
         let argv = run.argv
-        if (run.list) {
+        if (run.list && mediumSeen === undefined) {
+          console.log(
+            `gates: ${name}: not scanned, the cross-check cannot run (no small run with a medium file list in this invocation): vitest collects every file`,
+          )
+        } else if (run.list) {
           const selection = selectFiles(run.list, root)
           if ('error' in selection) {
             console.log(`gates: ${selection.error}`)
@@ -347,15 +361,13 @@ export async function runGates(root: string, config: GatesConfig, options: RunOp
       }
       // a run that wrote no summary leaves the tier unmeasured
       const summary = parts.length === commands.length && parts.length > 0 ? mergeSummaries(parts) : undefined
-      if (tier === 'small') mediumSeen = summary?.mediumFiles
+      if (tier === 'small') mediumSeen = crossCheckList(config, summary)
       let judged = selectionError
         ? { failure: selectionError, detail: '' }
         : judgeTier(tier, code, summary, floors)
       if (tier === 'medium' && scannedAny && !selectionError) {
         const missed = missedByScan(mediumSeen, scanned)
-        if (missed === undefined)
-          console.log('gates: medium: the static scan is not cross-checked (the small run did not report its medium files in this run)')
-        else if (missed.length > 0) {
+        if (missed && missed.length > 0) {
           const named = missed.map((f) => relative(root, f)).join(', ')
           const failure = `medium-tagged tests in files the static scan did not select, so they never ran: ${named}`
           judged = { failure: judged.failure ? `${judged.failure}; ${failure}` : failure, detail: judged.detail }

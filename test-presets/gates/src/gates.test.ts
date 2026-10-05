@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { judgeTier, protectedLines, raiseFloors, mergeSummaries, tierCommands, tierRuns, selectFiles, missedByScan, type GateResult, type RunSummary } from './gates.ts'
+import { judgeTier, protectedLines, raiseFloors, mergeSummaries, tierCommands, tierRuns, selectFiles, missedByScan, crossCheckList, type GateResult, type RunSummary } from './gates.ts'
 
 const summary = (small: number, medium = 0, large = 0): RunSummary => ({
   files: 1,
@@ -186,4 +186,20 @@ test('merged summaries keep the union of their medium files', () => {
   const b = { ...summary(1), mediumFiles: ['/r/b.test.ts', '/r/a.test.ts'] }
   assert.deepEqual(mergeSummaries([a, b]).mediumFiles, ['/r/a.test.ts', '/r/b.test.ts'])
   assert.equal(mergeSummaries([summary(1), summary(1)]).mediumFiles, undefined)
+})
+
+// The scan is used only when the cross-check can run; otherwise the medium run collects every file as before.
+test('the cross-check list comes from the small run, and from nothing else', () => {
+  const withFiles = { ...summary(1), mediumFiles: ['/r/a.test.ts'] }
+  assert.deepEqual(crossCheckList({ stack: 'vitest' }, withFiles), ['/r/a.test.ts'])
+})
+test('no small run in this invocation: no list, so no scan (--only=medium alone)', () => {
+  assert.equal(crossCheckList({ stack: 'vitest' }, undefined), undefined)
+})
+test('a commands.small override: its run may cover only part of the files, so no list, no scan', () => {
+  const withFiles = { ...summary(1), mediumFiles: ['/r/a.test.ts'] }
+  assert.equal(crossCheckList({ stack: 'vitest', commands: { small: ['x'] } }, withFiles), undefined)
+})
+test('a summary from a preset that does not write mediumFiles: no list, so no scan', () => {
+  assert.equal(crossCheckList({ stack: 'vitest' }, summary(1)), undefined)
 })

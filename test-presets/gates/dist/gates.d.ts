@@ -73,6 +73,12 @@ export declare function tierCommands(config: GatesConfig, tier: Tier): string[][
  * (small did not run in this invocation, a `commands.small` override, or a preset that does not write it).
  */
 export declare function missedByScan(seen: string[] | undefined, selected: string[]): string[] | undefined;
+/**
+ * The medium files the small run saw, or `undefined` when the scan cannot be cross-checked: small did not run in this
+ * invocation, a `commands.small` override (its run may cover only some files), or a summary from a preset that does
+ * not write `mediumFiles`. Then the medium run is not scanned: it collects every file, as it did before the scan.
+ */
+export declare function crossCheckList(config: GatesConfig, small: RunSummary | undefined): string[] | undefined;
 export type Selection = {
     files: string[];
 } | {
