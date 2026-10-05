@@ -19,7 +19,8 @@ A test's tier is set by what it may touch, not by how much code it covers.
 - **Small:** nothing outside the process. No network, no database, no files outside its own temp directory, no sleep,
   no server or container boot. In-process framework environments are allowed. It may read checked-in repo files
   (fixtures, configs, source) read-only; writing outside its own temp directory, the network, a database or a server
-  makes it medium.
+  makes it medium. An in-memory, in-process SQLite database keeps a test small; a database file on disk or a database
+  server makes it medium.
 - **Medium:** localhost. A real database, files, an app or server booted in-process.
 - **Large:** a built app on a port, a browser, or several processes.
 
