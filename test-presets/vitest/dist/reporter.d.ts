@@ -15,6 +15,11 @@ export interface RunSummary {
         tests: number;
         protected: number;
     }>;
+    /**
+     * Files (absolute) holding a test the run saw with the `medium` tag in a project that is not nuxt or e2e, whatever
+     * its state: a tag-filtered or quarantined one counts. The gate checks that the static scan selected each of them.
+     */
+    mediumFiles: string[];
 }
 /**
  * `unit` is small, `nuxt` is medium (every test there boots Nuxt, an app booted in-process), `e2e` is large.

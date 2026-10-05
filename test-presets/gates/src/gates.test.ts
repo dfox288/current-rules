@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { judgeTier, protectedLines, raiseFloors, mergeSummaries, tierCommands, type GateResult, type RunSummary } from './gates.ts'
+import { judgeTier, protectedLines, raiseFloors, mergeSummaries, tierCommands, tierRuns, selectFiles, missedByScan, crossCheckList, type GateResult, type RunSummary } from './gates.ts'
 
 const summary = (small: number, medium = 0, large = 0): RunSummary => ({
   files: 1,
@@ -114,4 +114,92 @@ test('a medium tier made of two runs adds up in one summary', () => {
   const merged = mergeSummaries([summary(0, 2), summary(0, 3)])
   assert.equal(merged.tiers.medium.tests, 5)
   assert.equal(merged.tests, 5)
+})
+
+// Tier selection by static scan: the medium run of the tag-selected projects gets its files from `vitest list`.
+const fake = (stdout: string, code = 0, stderr = '') => [
+  process.execPath,
+  '-e',
+  `process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(stderr)}); process.exit(${code})`,
+]
+const listing = (root: string, files: string[]) =>
+  JSON.stringify(files.flatMap((f, i) => [{ name: `t${i}a`, file: join(root, f) }, { name: `t${i}b`, file: join(root, f) }]))
+
+test('only the medium run of the tag-selected projects is selected by a scan; small is not', () => {
+  const medium = tierRuns({ stack: 'vitest', projects: { smallMedium: ['unit', 'nuxt'] } }, 'medium')
+  assert.equal(medium.length, 2)
+  assert.deepEqual(medium[0].list, ['pnpm', 'exec', 'vitest', 'list', '--tags-filter', 'medium', '--project', 'unit', '--json'])
+  assert.equal(medium[1].list, undefined, 'the nuxt project runs whole')
+  assert.ok(tierRuns({ stack: 'vitest' }, 'small').every((r) => r.list === undefined))
+  assert.ok(tierRuns({ stack: 'vitest' }, 'large').every((r) => r.list === undefined))
+  assert.equal(tierRuns({ stack: 'pytest' }, 'medium')[0].list, undefined)
+  assert.equal(tierRuns({ stack: 'vitest', commands: { medium: ['x'] } }, 'medium')[0].list, undefined)
+})
+
+test('control: the scan gives exactly the files of the full collection, once each, sorted', () => {
+  const root = mkdtempSync(join(tmpdir(), 'gates-select-'))
+  const collected = ['test/b.test.ts', 'test/a.test.ts', 'test/sub/c.test.ts'] // what a full collection finds
+  const selected = selectFiles(fake(listing(root, collected)), root)
+  assert.ok('files' in selected)
+  assert.deepEqual(selected.files, collected.map((f) => join(root, f)).sort())
+})
+
+test('a failing list is an error with the reason, never an empty selection', () => {
+  const root = mkdtempSync(join(tmpdir(), 'gates-select-'))
+  const failed = selectFiles(fake('', 1, 'Error: No projects matched'), root)
+  assert.ok('error' in failed)
+  assert.match(failed.error, /vitest list failed: exit 1 from .*No projects matched$/s)
+  const garbage = selectFiles(fake('not json'), root)
+  assert.ok('error' in garbage)
+  assert.match(garbage.error, /no JSON/)
+  const missing = selectFiles(['/nonexistent/vitest-binary'], root)
+  assert.ok('error' in missing)
+  assert.match(missing.error, /could not start/)
+  const shape = selectFiles(fake('{"a":1}'), root)
+  assert.ok('error' in shape)
+})
+
+test('a list that finds no file is an empty selection the runner must not turn into a bare run', () => {
+  const root = mkdtempSync(join(tmpdir(), 'gates-select-'))
+  assert.deepEqual(selectFiles(fake('[]'), root), { files: [] })
+})
+
+// The cross-check: the small run collects every file, so it saw each medium-tagged test the static scan may have missed.
+test('control: every file with a medium test was selected by the scan, nothing is missed', () => {
+  assert.deepEqual(missedByScan(['/r/a.test.ts', '/r/b.test.ts'], ['/r/a.test.ts', '/r/b.test.ts', '/r/c.test.ts']), [])
+  assert.deepEqual(missedByScan([], []), [])
+})
+
+test('a file the small run saw medium tests in and the scan did not select is missed, sorted', () => {
+  assert.deepEqual(missedByScan(['/r/z.test.ts', '/r/a.test.ts', '/r/b.test.ts'], ['/r/b.test.ts']), [
+    '/r/a.test.ts',
+    '/r/z.test.ts',
+  ])
+})
+
+test('without the small run\'s list the check is not made, and says so by returning undefined', () => {
+  assert.equal(missedByScan(undefined, ['/r/a.test.ts']), undefined)
+})
+
+test('merged summaries keep the union of their medium files', () => {
+  const a = { ...summary(1), mediumFiles: ['/r/a.test.ts'] }
+  const b = { ...summary(1), mediumFiles: ['/r/b.test.ts', '/r/a.test.ts'] }
+  assert.deepEqual(mergeSummaries([a, b]).mediumFiles, ['/r/a.test.ts', '/r/b.test.ts'])
+  assert.equal(mergeSummaries([summary(1), summary(1)]).mediumFiles, undefined)
+})
+
+// The scan is used only when the cross-check can run; otherwise the medium run collects every file as before.
+test('the cross-check list comes from the small run, and from nothing else', () => {
+  const withFiles = { ...summary(1), mediumFiles: ['/r/a.test.ts'] }
+  assert.deepEqual(crossCheckList({ stack: 'vitest' }, withFiles), ['/r/a.test.ts'])
+})
+test('no small run in this invocation: no list, so no scan (--only=medium alone)', () => {
+  assert.equal(crossCheckList({ stack: 'vitest' }, undefined), undefined)
+})
+test('a commands.small override: its run may cover only part of the files, so no list, no scan', () => {
+  const withFiles = { ...summary(1), mediumFiles: ['/r/a.test.ts'] }
+  assert.equal(crossCheckList({ stack: 'vitest', commands: { small: ['x'] } }, withFiles), undefined)
+})
+test('a summary from a preset that does not write mediumFiles: no list, so no scan', () => {
+  assert.equal(crossCheckList({ stack: 'vitest' }, summary(1)), undefined)
 })

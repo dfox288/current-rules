@@ -41,7 +41,7 @@
     "@nuxt/test-utils": "^4.3.2",
     "playwright": "1.60.0",
     "postgres": "3.4.9",
-    "vitest": "4.1.11"
+    "vitest": "5.0.3"
   },
   "peerDependenciesMeta": {
     "@nuxt/test-utils": {
@@ -60,6 +60,6 @@
     "playwright": "1.60.0",
     "postgres": "3.4.9",
     "typescript": "~5.9.3",
-    "vitest": "4.1.11"
+    "vitest": "5.0.3"
   }
 }

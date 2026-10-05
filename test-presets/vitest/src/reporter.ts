@@ -18,6 +18,11 @@ export interface RunSummary {
   /** tests that set a timeout above their tier's limit */
   limitRaised: string[]
   tiers: Record<Tier, { files: number; tests: number; protected: number }>
+  /**
+   * Files (absolute) holding a test the run saw with the `medium` tag in a project that is not nuxt or e2e, whatever
+   * its state: a tag-filtered or quarantined one counts. The gate checks that the static scan selected each of them.
+   */
+  mediumFiles: string[]
 }
 
 /**
@@ -40,6 +45,7 @@ export function summarize(modules: ReadonlyArray<TestModule>): RunSummary {
     flaky: [],
     retriedBeyondRules: [],
     limitRaised: [],
+    mediumFiles: [],
     tiers: {
       small: { files: 0, tests: 0, protected: 0 },
       medium: { files: 0, tests: 0, protected: 0 },
@@ -52,8 +58,15 @@ export function summarize(modules: ReadonlyArray<TestModule>): RunSummary {
     large: new Set(),
   }
   const files = new Set<string>()
+  const mediumFiles = new Set<string>()
   for (const module of modules) {
     for (const test of module.children.allTests()) {
+      if (
+        test.tags.includes('medium') &&
+        test.project.name !== PROJECTS.nuxt &&
+        test.project.name !== PROJECTS.e2e
+      )
+        mediumFiles.add(module.moduleId)
       const state = test.result().state
       const label = `${module.relativeModuleId} > ${test.fullName}`
       if (state === 'skipped') {
@@ -81,6 +94,7 @@ export function summarize(modules: ReadonlyArray<TestModule>): RunSummary {
     }
   }
   summary.files = files.size
+  summary.mediumFiles = [...mediumFiles].sort()
   for (const tier of Object.keys(filesPerTier) as Tier[])
     summary.tiers[tier].files = filesPerTier[tier].size
   return summary

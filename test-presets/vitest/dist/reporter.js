@@ -24,6 +24,7 @@ export function summarize(modules) {
         flaky: [],
         retriedBeyondRules: [],
         limitRaised: [],
+        mediumFiles: [],
         tiers: {
             small: { files: 0, tests: 0, protected: 0 },
             medium: { files: 0, tests: 0, protected: 0 },
@@ -36,8 +37,13 @@ export function summarize(modules) {
         large: new Set(),
     };
     const files = new Set();
+    const mediumFiles = new Set();
     for (const module of modules) {
         for (const test of module.children.allTests()) {
+            if (test.tags.includes('medium') &&
+                test.project.name !== PROJECTS.nuxt &&
+                test.project.name !== PROJECTS.e2e)
+                mediumFiles.add(module.moduleId);
             const state = test.result().state;
             const label = `${module.relativeModuleId} > ${test.fullName}`;
             if (state === 'skipped') {
@@ -70,6 +76,7 @@ export function summarize(modules) {
         }
     }
     summary.files = files.size;
+    summary.mediumFiles = [...mediumFiles].sort();
     for (const tier of Object.keys(filesPerTier))
         summary.tiers[tier].files = filesPerTier[tier].size;
     return summary;

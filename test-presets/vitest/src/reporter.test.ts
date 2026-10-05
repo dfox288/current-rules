@@ -43,3 +43,38 @@ describe('summarize', () => {
     expect(s.tiers.small.tests).toBe(1)
   })
 })
+
+describe('summarize: medium files', () => {
+  const module = (id: string, tests: { project: string; tags: string[]; state: string }[]): TestModule =>
+    ({
+      moduleId: id,
+      relativeModuleId: id,
+      children: {
+        allTests: () =>
+          tests.map((t) => ({
+            project: { name: t.project },
+            tags: t.tags,
+            fullName: 'a test',
+            options: {},
+            result: () => ({ state: t.state }),
+            diagnostic: () => ({ retryCount: 0 }),
+          })),
+      },
+    }) as unknown as TestModule
+
+  it('lists a file with a medium test the tag filter skipped, so the small run can report what it did not run', () => {
+    const s = summarize([
+      module('/r/a.test.ts', [{ project: 'unit', tags: ['medium'], state: 'skipped' }]),
+      module('/r/b.test.ts', [{ project: 'unit', tags: [], state: 'passed' }]),
+      module('/r/c.test.ts', [{ project: 'unit', tags: ['medium'], state: 'passed' }]),
+    ])
+    expect(s.mediumFiles).toEqual(['/r/a.test.ts', '/r/c.test.ts'])
+  })
+  it('does not list nuxt or e2e files (they are not selected by the scan)', () => {
+    const s = summarize([
+      module('/r/n.test.ts', [{ project: 'nuxt', tags: ['medium'], state: 'passed' }]),
+      module('/r/e.test.ts', [{ project: 'e2e', tags: ['medium'], state: 'passed' }]),
+    ])
+    expect(s.mediumFiles).toEqual([])
+  })
+})

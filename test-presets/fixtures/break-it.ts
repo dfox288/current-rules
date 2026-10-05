@@ -336,6 +336,69 @@ const gatesCases: Case[] = [
     message: /GATE RED: small \(exit 1\)/,
   },
   {
+    name: 'control: the medium tier selected by the static scan counts what a full collection did',
+    plant: [],
+    command: [...gatesRun, '--only=medium'],
+    expect: 'green',
+    message: /medium +OK +\d+s +3 tests, 2 files \(floor 3\)/,
+  },
+  {
+    name: 'a medium test in a new file is selected by the scan, with no file list to keep',
+    plant: [{ from: 'medium-extra.test.ts', to: 'test/unit/medium-extra.test.ts' }],
+    command: [...gatesRun, '--only=medium'],
+    expect: 'green',
+    message: /medium +OK +\d+s +4 tests, 3 files \(floor 3\)/,
+  },
+  {
+    name: 'control: small and medium together, the scan selected every file the small run saw medium tests in',
+    plant: [],
+    command: [...gatesRun, '--only=small,medium'],
+    expect: 'green',
+    message: /the static scan selected every file the small run saw medium tests in/,
+  },
+  {
+    name: 'a medium test whose tag the scan cannot read is red, naming its file',
+    plant: [{ from: 'medium-tags-by-variable.test.ts', to: 'test/unit/medium-tags-by-variable.test.ts' }],
+    command: [...gatesRun, '--only=small,medium'],
+    expect: 'red',
+    message: /GATE RED: medium \(medium-tagged tests in files the static scan did not select, so they never ran: test\/unit\/medium-tags-by-variable\.test\.ts\)/,
+  },
+  {
+    name: 'medium alone is not scanned: a medium test the scan cannot read still runs, never green-unrun',
+    plant: [{ from: 'medium-tags-by-variable.test.ts', to: 'test/unit/medium-tags-by-variable.test.ts' }],
+    command: [...gatesRun, '--only=medium'],
+    expect: 'green',
+    message: /^(?=[\s\S]*not scanned, the cross-check cannot run)(?=[\s\S]*medium +OK +\d+s +4 tests, 3 files)/,
+  },
+  {
+    name: 'a commands.small override is not scanned either: the variable-tagged medium test runs',
+    plant: [{ from: 'medium-tags-by-variable.test.ts', to: 'test/unit/medium-tags-by-variable.test.ts' }],
+    command: [...gatesRun, '--only=small,medium', '--config=.tmp/small-override.config.json'],
+    expect: 'green',
+    message: /^(?=[\s\S]*not scanned, the cross-check cannot run)(?=[\s\S]*medium +OK +\d+s +4 tests, 3 files)/,
+    prepare: (f) => {
+      mkdirSync(join(f, '.tmp'), { recursive: true })
+      return withFile(
+        '.tmp/small-override.config.json',
+        '{"stack":"vitest","commands":{"small":["pnpm","exec","vitest","run","--project","unit","--tags-filter","!medium"]}}',
+      )(f)
+    },
+  },
+  {
+    name: 'a vitest list that fails turns the tier red with the reason, never a run of nothing',
+    plant: [],
+    command: [...gatesRun, '--only=small,medium'],
+    expect: 'red',
+    message: /GATE RED: medium \(vitest list failed: exit 1 from pnpm exec vitest list .*planted list failure/,
+    // only `vitest list` throws, so the small run passes and the medium scan is the one that fails
+    prepare: (f) => {
+      const file = join(f, 'vitest.config.ts')
+      const before = readFileSync(file, 'utf8')
+      writeFileSync(file, `if (process.argv.includes('list')) throw new Error('planted list failure')\n${before}`)
+      return () => writeFileSync(file, before)
+    },
+  },
+  {
     name: 'a tier whose run writes no summary is NOT MEASURED, not green',
     plant: [],
     command: [...gatesRun, '--only=small', '--config=.tmp/no-preset.config.json'],

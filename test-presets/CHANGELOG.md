@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-10-06)
+
+- vitest preset and gate script: Vitest 5. The peer `vitest` is `5.0.3` (exact, as before: the reporter and plugin use members
+  Vitest does not type); an app repins `vitest`, `@vitest/ui` and `@vitest/coverage-v8` to 5.0.3 with it. Vitest 5 needs
+  Node >= 22.12, Vite >= 6.4 and `@nuxt/test-utils` >= 4.3.2. Its default changes reach tests, not the preset: `clearMocks`
+  is on, a happy-dom/jsdom window is mutable (`globalThis.navigator = ...` now throws, use `Object.defineProperty`), a
+  hoisted `vi.mock` outside the top level throws, an unawaited `resolves`/`rejects` fails the test.
+- gate script, Vitest stack: the medium run of the tag-selected projects (`unit` and the like; not `nuxt`, which already
+  runs whole) is restricted to the files `vitest list --tags-filter medium --project <p> --json` names. That scan is
+  static (about 2 s) and sets up no file, where `--tags-filter` on a run sets up every file of the project first (beacon:
+  612 files to run 22). The run keeps its `--tags-filter`, so counts, floors, protected counts and the summary are the
+  same as before. A `vitest list` that cannot start, exits non-zero or prints no JSON turns the tier red with the reason
+  (`vitest list failed: ...`); a scan that finds no file runs nothing and the tier is red as a zero-test tier; neither
+  falls back to a full run. The small tier is not scanned (it would save the setup of a few medium files, and a file
+  whose tests are all generated, such as `it.each`, is invisible to the static scan). A medium test the scan cannot read (its tag
+  set through a variable) is caught by a cross-check: the preset's run summary gains `mediumFiles` (files where the run
+  saw a medium-tagged test in a unit-like project, skipped ones included), and when small and medium run together the
+  medium gate is red, naming the files, if the scan did not select one of them. The scan is used only when the
+  cross-check can run: with `--only=medium` alone, a `commands.small` override, or a summary without `mediumFiles` the
+  medium run is not scanned (every file is collected, as before) and the gate says so in one line. A `commands.medium` override still
+  replaces the whole selection.
 - release: `presets-release.yml` publishes both npm packages to the private registry on a `presets-v*` tag; both `package.json`
   files carry `publishConfig.registry`. (horizon-surveyor#123)
 - gate script, both stacks: a new gate `docs` (runs after `typecheck`, before the tiers). It compares the tree with its
@@ -19,7 +40,7 @@
   first run may be red on lines that were already stale, which the repin commit fixes. The rule is in
   `dfox288/standard.md`, "Docs and changelog". (horizon-surveyor#149)
 
-## 0.1.5 (2026-10-05)
+## 0.1.5 (2026-10-05, never tagged: shipped in 0.2.0)
 
 - rename: `presets/` is now `test-presets/`, and the release tag prefix is `test-presets-v*` (this release: `test-presets-v0.1.5`);
   `.github/workflows/presets.yml` and `presets-release.yml` are now `test-presets.yml` and `test-presets-release.yml`.

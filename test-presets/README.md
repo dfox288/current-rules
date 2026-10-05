@@ -107,6 +107,17 @@ takes the repo's `connect(url)` (a DB-API connection) and gives a schema that is
 zero tests and one whose run wrote no summary (the preset did not run) are red; `--raise-floors` raises the floors
 after a green run and never lowers them. The last line is `GATE GREEN (...)` or `GATE RED: <gate (reason)>, ...`.
 
+On the Vitest stack the medium run of the tag-selected projects (`unit`, not `nuxt`) takes its files from a static scan,
+`vitest list --tags-filter medium --project <p> --json` (Vitest 5; about 2 s, sets up no file), and runs only those, with
+`--tags-filter` still on the run. Without it Vitest sets up every file of the project to run the few medium ones. Counts,
+floors and the summary are unchanged. A scan that fails (cannot start, non-zero exit, no JSON) is red with the reason
+(`vitest list failed: ...`), never a silent full run or a run of nothing. The small tier is not scanned. A medium test whose tag the static scan cannot read (the tag set through a variable, say) would not be
+selected and would never run, so the gate cross-checks: the small run collects every file, the preset's summary lists the
+files where it saw a medium-tagged test (`mediumFiles`, skipped ones included), and the medium gate is red, naming each
+file, when the scan did not select one of them. The check needs the small run's list, so the scan is used only when it exists: with `--only=medium` alone, a `commands.small`
+override or a preset whose summary has no `mediumFiles`, the medium run is not scanned (it collects every file, as before)
+and the gate prints one line saying so.
+
 The gate summary also reports the protected count, one line per tier that ran, right after the gate table:
 
 ```
