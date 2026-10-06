@@ -1,6 +1,6 @@
 [project]
 name = "dfox288-test-preset"
-version = "0.1.5"
+version = "0.2.0"
 description = "The pytest preset of the testing baseline: tiers as markers, limits, guards, count guard, DB helper"
 requires-python = ">=3.14"
 dependencies = [
