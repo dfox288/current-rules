@@ -1,3 +1,5 @@
 verifyDepsBeforeRun: false
 allowBuilds:
   esbuild: false
+overrides:
+  simple-git: ^4.0.2
