@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-10-07)
+
 - both presets: the shape-compare helper for outside-service fakes (`testing.md`, "What a test may fake": each fake has a
   contract check). It compares a fake's answer with a recorded real answer by shape, never by value: the kind of each
   value (null, boolean, number, string, array, object), the keys of each object, and the shape of an array's elements
