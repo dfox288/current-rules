@@ -13,7 +13,7 @@ its justified differences.
 
 ## Install
 
-Tag `test-presets-v0.2.0`. The two npm packages come from the private registry (see "Release and registry install"
+Tag `test-presets-v0.3.0`. The two npm packages come from the private registry (see "Release and registry install"
 below); the pytest package is a git dependency. Syntax checked against the docs (pnpm: "Install from a
 subdirectory of a Git repository", pnpm.io/package-sources; uv: "Dependency sources, Git, subdirectory",
 docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from this repo's branch.
@@ -21,8 +21,8 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.2.0",
-  "@dfox288/test-gates": "0.2.0"
+  "@dfox288/test-preset-vitest": "0.3.0",
+  "@dfox288/test-gates": "0.3.0"
 }
 ```
 
@@ -32,7 +32,7 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 test = ["dfox288-test-preset", "<the repo's DB driver, if it has a database>"]
 
 [tool.uv.sources]
-dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.2.0" }
+dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.3.0" }
 ```
 
 pnpm fetches a GitHub dependency as a tarball (no `git` needed); uv runs `git`. The built JavaScript (`dist/`) is
@@ -61,8 +61,8 @@ and CI gets read auth the way landfall-ui's workflows do):
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.2.0",
-  "@dfox288/test-gates": "0.2.0"
+  "@dfox288/test-preset-vitest": "0.3.0",
+  "@dfox288/test-gates": "0.3.0"
 }
 ```
 
@@ -98,6 +98,35 @@ Tests carry tags with `it(name, { tags: ['medium'] }, fn)`. Untagged tests in `u
 Installing the package loads the plugin (entry point `pytest11`). Markers `medium`, `large`, `protected`,
 `quarantine`; `--strict-markers` and `--import-mode=importlib` are forced. `dfox288_test_preset.db.open_test_schema`
 takes the repo's `connect(url)` (a DB-API connection) and gives a schema that is dropped on exit.
+
+## Contract check for fakes
+
+A fake of an outside service has one test that it still has the real thing's shape (`testing.md`). Record a real answer
+once, on purpose, then compare the fake's answer with it; only the shape counts (kinds, object keys, array element
+shape), never values.
+
+```ts
+import { expectShape, recordAnswer } from '@dfox288/test-preset-vitest/shape'
+
+// the repo's record command (a script that talks to the real service; the only place that writes)
+recordAnswer('test/recorded/run.json', await realService.run())
+
+// the contract test
+it('the fake answers in the real shape', () => {
+  expectShape(fakeService.run(), 'test/recorded/run.json') // throws listing `$.path: what` for each difference
+})
+```
+
+```python
+from dfox288_test_preset.shape import expect_shape, record_answer
+
+def test_fake_answers_in_the_real_shape():
+    expect_shape(fake.run(), "tests/recorded/run.json")
+```
+
+A recorded array stands for any number of elements of the shape all its elements share (an empty one accepts any
+element); a key some recorded elements lack is optional; an undefined value counts as an absent key. A test run never
+writes a recording: a missing file fails and names `recordAnswer` / `record_answer`.
 
 ## Gates
 
