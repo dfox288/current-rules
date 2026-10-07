@@ -20,6 +20,10 @@
       "types": "./dist/e2e/browser.d.ts",
       "default": "./dist/e2e/browser.js"
     },
+    "./shape": {
+      "types": "./dist/shape.d.ts",
+      "default": "./dist/shape.js"
+    },
     "./db": {
       "types": "./dist/db.d.ts",
       "default": "./dist/db.js"

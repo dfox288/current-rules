@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- both presets: the shape-compare helper for outside-service fakes (`testing.md`, "What a test may fake": each fake has a
+  contract check). It compares a fake's answer with a recorded real answer by shape, never by value: the kind of each
+  value (null, boolean, number, string, array, object), the keys of each object, and the shape of an array's elements
+  (every element is checked; a key some recorded elements lack is optional). Vitest: `@dfox288/test-preset-vitest/shape`
+  exports `expectShape(actual, file)`, `shapeDiff(actual, recorded)`, `loadAnswer(file)`, `recordAnswer(file, answer)`.
+  pytest: `dfox288_test_preset.shape` exports `expect_shape`, `shape_diff`, `load_answer`, `record_answer`. A mismatch
+  lists every difference as `$.path: what`; a missing recording fails and is never created by a test run. The recording
+  is a JSON file written only by `recordAnswer` / `record_answer`, which a repo calls from its own record command (the one
+  that talks to the real service); that command is the explicit re-record. Nothing changes for a repo that does not
+  import it.
+
 ## 0.2.0 (2026-10-06)
 
 - vitest preset and gate script: Vitest 5. The peer `vitest` is `5.0.3` (exact, as before: the reporter and plugin use members
