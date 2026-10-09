@@ -18,7 +18,8 @@ repo that uses none of them.
 - Gate script: `--related=<file>`, `--tests=<file>`, `--small-tests=`, `--medium-tests=`, `--large-tests=` (repeatable). A
   Vitest tier given `--related` runs `vitest related --run <files>` (a test file given runs itself); test paths alone
   run `vitest run <files>`; a narrowed tier is not scanned or floor-checked and, selecting nothing, is skipped with the
-  changed files named, not red. `large` is never narrowed; `--raise-floors` is refused with either flag; `--related` on the
+  changed files named, not red; a narrowed run in which no tier ran a test and nothing is red exits 66 (a mixed run
+  stays 0), the contract of `selection.md`, "The gate script's arguments". `large` is never narrowed; `--raise-floors` is refused with either flag; `--related` on the
   pytest stack or on a `commands` tier is a usage error. A run without the flags is unchanged.
 - Vitest preset: the shape test of `checks.map.yml` version 2. A repo's test file is
   `import '@dfox288/test-preset-vitest/checks-map-test'`; it is red on every rule of `selection.md`, "Checks of the file".

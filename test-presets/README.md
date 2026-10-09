@@ -279,7 +279,11 @@ test-gates --only=small,medium --related=web/app/utils/filter.ts --tests=web/tes
 - A narrowed tier is neither scanned nor floor-checked: the floors and the cross-check describe a whole tier. A narrowed
   run that selects no test is a skip, not a red: `gates: medium: narrowed: no medium test is related to the selected files
   (changed files: ...)`, and the gate can still be green (selection.md: "a selection of zero tests skips the kind"): the
-  table shows the tier as skipped with that reason, and a run whose tiers all skipped that way is green. `--raise-floors` is refused with either flag.
+  table shows the tier as skipped with that reason. A mixed run (one tier skipped, another green) is green and exits 0. A
+  narrowed run in which no tier ran a test and nothing is red ends `GATE SKIPPED: narrowed run, no tier selected a test`
+  and exits **66**; Current records that as a skip. `--raise-floors` is refused with either flag.
+- Exit codes: 0 green; 1 red; 2 a usage error; 66 as above (never on a run without `--related` or `--tests`). A path outside
+  the directory the gate runs in starts with `../`; it must still be inside the repository.
 - pytest has no narrowing step (`selection.md`): `--related` on the pytest stack, or on a tier with a `commands`
   override, is a usage error. `--tests` works on both.
 

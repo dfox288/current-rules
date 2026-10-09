@@ -21,6 +21,8 @@ interface Case {
   /** `red`: non-zero exit and the message; `green`: exit 0 and the message */
   expect: 'red' | 'green'
   message: RegExp
+  /** the exact exit status, when it matters (66: a narrowed run in which no tier ran a test) */
+  exit?: number
   /** sets the fixture up for the case; returns the function that puts it back */
   prepare?: (fixture: string) => () => void
   /** extra check after the run, returns an error text or undefined */
@@ -463,13 +465,15 @@ const gatesCases: Case[] = [
     command: [...gatesRun, '--only=small,medium', '--related=app/utils/related-only.ts'],
     expect: 'green',
     message: /^(?=[\s\S]*small +OK +\d+s +1 tests)(?=[\s\S]*medium +skipped +\d+s +narrowed: no medium test is related to the selected files)(?=[\s\S]*GATE GREEN)/,
+    exit: 0,
   },
   {
-    name: 'related: a changed file no test imports skips the kind with the files named, and the gate is green',
+    name: 'related: a changed file no test imports skips the kind with the files named, and the run exits 66 (no tier ran a test)',
     plant: [],
     command: [...gatesRun, '--only=small,medium', '--related=server/api/ping.get.ts'],
     expect: 'green',
-    message: /^(?=[\s\S]*gates: small: narrowed: no small test is related to the selected files \(changed files: server\/api\/ping\.get\.ts\))(?=[\s\S]*GATE GREEN)(?![\s\S]*GATE RED)/,
+    exit: 66,
+    message: /^(?=[\s\S]*gates: small: narrowed: no small test is related to the selected files \(changed files: server\/api\/ping\.get\.ts\))(?=[\s\S]*GATE SKIPPED: narrowed run, no tier selected a test)(?![\s\S]*GATE (GREEN|RED))/,
   },
   {
     name: 'related: the large tier is not narrowed by a changed file',
@@ -568,11 +572,12 @@ cases['gates-pytest'] = {
       message: /small +OK +\d+s +2 tests, 1 files \(narrowed, floor not checked\)/,
     },
     {
-      name: 'test paths: a file with no test of the tier is a skip with its reason, not a failure',
+      name: 'test paths: a file with no test of the tier is a skip with its reason, not a failure; the run exits 66',
       plant: [],
       command: [...gatesPyRun, '--only=small', '--small-tests=tests/test_medium.py'],
       expect: 'green',
-      message: /^(?=[\s\S]*small +skipped +\d+s +narrowed: no small test is related to the selected files)(?=[\s\S]*GATE GREEN)/,
+      exit: 66,
+      message: /^(?=[\s\S]*small +skipped +\d+s +narrowed: no small test is related to the selected files)(?=[\s\S]*GATE SKIPPED: narrowed run, no tier selected a test)/,
     },
     {
       name: 'a pytest tier below its floor fails the gate',
@@ -633,12 +638,12 @@ for (const c of plan.cases) {
     const [cmd, ...args] = c.command
     const r = spawnSync(cmd, args, { cwd: plan.fixture, encoding: 'utf8', env: process.env })
     const out = `${r.stdout}\n${r.stderr}`.replace(/\u001b\[[0-9;]*m/g, '')
-    const statusOk = c.expect === 'red' ? r.status !== 0 : r.status === 0
+    const statusOk = c.exit !== undefined ? r.status === c.exit : c.expect === 'red' ? r.status !== 0 : r.status === 0
     const matched = c.message.test(out)
     const extra = c.after?.(plan.fixture)
     const ok = statusOk && matched && !extra
     if (!ok) bad++
-    const first = out.split('\n').find((l) => /GATE (RED|GREEN)|Error:|\[test-preset\] (FAIL|FLAKY)|exited|test-gates:/.test(l))
+    const first = out.split('\n').find((l) => /GATE (RED|GREEN|SKIPPED)|Error:|\[test-preset\] (FAIL|FLAKY)|exited|test-gates:/.test(l))
     console.log(
       `${ok ? 'OK ' : 'BAD'} ${c.expect.toUpperCase().padEnd(5)} ${c.name} (exit ${r.status})` +
         (first ? `\n      ${first.trim().slice(0, 220)}` : '') +

@@ -64,7 +64,8 @@ export declare class UsageError extends Error {
 /**
  * The paths a caller names, relative to `base` (the directory the gate runs in, where `gates.config.json` is), as
  * absolute paths, each once. `mustExist` refuses a path that is not a file (a test file to run); `within` refuses
- * one outside that directory.
+ * one outside that directory (the repository: a kind's directory may sit below its root, and a path outside the kind's
+ * directory then starts with `../`).
  */
 export declare function repoPaths(base: string, paths: string[], options?: {
     mustExist?: boolean;
@@ -158,6 +159,7 @@ export declare function loadFloors(root: string, config: GatesConfig): Floors;
 export declare function runGates(root: string, config: GatesConfig, options?: RunOptions): Promise<{
     results: GateResult[];
     red: boolean;
+    noTestRan: boolean;
     verdict: string;
 }>;
 /** Raises a tier's floor to the count of a green run. Never lowers one: a lower floor is a decision. */

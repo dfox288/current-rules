@@ -27,7 +27,8 @@ export class UsageError extends Error {
 /**
  * The paths a caller names, relative to `base` (the directory the gate runs in, where `gates.config.json` is), as
  * absolute paths, each once. `mustExist` refuses a path that is not a file (a test file to run); `within` refuses
- * one outside that directory.
+ * one outside that directory (the repository: a kind's directory may sit below its root, and a path outside the kind's
+ * directory then starts with `../`).
  */
 export function repoPaths(base, paths, options = {}) {
     const out = new Set();
@@ -36,7 +37,7 @@ export function repoPaths(base, paths, options = {}) {
         if (options.within) {
             const rel = relative(options.within, absolute);
             if (rel === '' || rel.startsWith('..') || isAbsolute(rel))
-                throw new UsageError(`${path} is outside ${options.within}, where the gate runs`);
+                throw new UsageError(`${path} is outside ${options.within}`);
         }
         if (options.mustExist && !isFile(absolute))
             throw new UsageError(`${path} does not exist`);
@@ -413,13 +414,19 @@ export async function runGates(root, config, options = {}) {
     const ranNothing = results.every((r) => r.status === 'skipped' && !r.narrowed);
     if (options.raiseFloors && red.length === 0 && !ranNothing)
         raiseFloors(root, config, floors, results);
+    // A narrowed run in which every narrowed tier selected nothing and nothing is red: no test ran (exit 66, selection.md
+    // "The gate script's arguments"). A mixed run, one tier skipped and another green, stays green.
+    const tierResults = results.filter((r) => TIERS.includes(r.name));
+    const noTestRan = !ranNothing && red.length === 0 && tierResults.some((r) => r.narrowed) && tierResults.every((r) => r.status === 'skipped');
     const verdict = ranNothing
         ? 'GATE RED: no gate ran'
         : red.length === 0
-            ? `GATE GREEN (quarantined: ${quarantined}, flaky: ${flaky})`
+            ? noTestRan
+                ? 'GATE SKIPPED: narrowed run, no tier selected a test'
+                : `GATE GREEN (quarantined: ${quarantined}, flaky: ${flaky})`
             : `GATE RED: ${red.map((r) => (r.detail ? `${r.name} (${r.detail})` : r.name)).join(', ')}`;
     console.log(verdict);
-    return { results, red: red.length > 0 || ranNothing, verdict };
+    return { results, red: red.length > 0 || ranNothing, noTestRan, verdict };
 }
 /** Raises a tier's floor to the count of a green run. Never lowers one: a lower floor is a decision. */
 export function raiseFloors(root, config, floors, results) {
