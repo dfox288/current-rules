@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.4.1 (2026-10-09)
+
+- pytest preset: the worker databases are made and dropped in a child process (ruling R133, from lookout#165). 0.4.0
+  imported its own `pg8000` (and `scramp`, `asn1crypto`) into every xdist worker that had `TEST_DATABASE_URL`, so a repo
+  that vendors its own driver ran its tests on the preset's and failed its vendor test (`asn1crypto loaded from outside
+  _vendor`). Now `pg8000` stays a dependency of the package but is imported only in `python -I -m
+  dfox288_test_preset.admin`, a child process; after the plugin's session start the three are not in the worker's
+  `sys.modules`. A repo needs no change but the repin.
+  - `create_database`, `drop_database` and `drop_databases_starting_with` keep their signatures and go through the same
+    child process (the URL by environment, never on the command line or in an error message; a failure raises
+    `dfox288_test_preset.db.DatabaseAdminError`). The child costs about 75 ms more per call than an in-process call (90 ms
+    per create, 80 ms per drop, against a local Postgres): about 0.3 s per run. `open_test_schema` stays driverless.
+  - `admin_connect` is no longer public (R140): no repo used it, and it imported the driver into its caller. The
+    preset's own tests take the connection from `dfox288_test_preset.admin`.
+  - The rule is in `README.md` ("Parallel runs"): the preset never imports its own dependencies into the process under
+    test.
+- gate script and Vitest preset: version only, no change.
+
 ## 0.4.0 (2026-10-09)
 
 - pytest preset: parallel runs, from what lookout#164 learned (ruling R116). A repo gets all of it by a repin and removes
@@ -20,7 +38,7 @@
     from `template0` at the worker's start, `TEST_DATABASE_URL` points at it for the worker and its subprocesses, and it
     is dropped `WITH (FORCE)` at the end; the controller drops a crashed worker's. Nothing is created without xdist or
     without the variable; a worker that cannot create its database errors its tests with the reason, never the URL. The
-    role needs `CREATEDB`. New in `dfox288_test_preset.db`: `database_url`, `admin_connect`, `create_database`,
+    role needs `CREATEDB`. New in `dfox288_test_preset.db`: `database_url`, `create_database`,
     `drop_database`, `drop_databases_starting_with`.
   - `dfox288_test_preset.net.free_port()`.
   - A test that sets its own timeout now fails in setup with the message instead of aborting the run as a usage error: a

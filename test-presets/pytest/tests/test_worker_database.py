@@ -6,7 +6,9 @@ import re
 from urllib.parse import urlsplit
 
 import pytest
-from dfox288_test_preset.db import DATABASE_ENV, admin_connect, create_database, database_url, drop_database
+# the driver, in the test process: only the preset's own tests do that
+from dfox288_test_preset.admin import connect as admin_connect
+from dfox288_test_preset.db import DATABASE_ENV, create_database, database_url, drop_database
 
 WORKER_DATABASE = re.compile(r"^dfox288_worker_[0-9a-f]{12}_gw\d+$")
 
@@ -20,7 +22,8 @@ import sys
 from urllib.parse import urlsplit
 
 import pytest
-from dfox288_test_preset.db import DATABASE_ENV, admin_connect
+from dfox288_test_preset.admin import connect as admin_connect
+from dfox288_test_preset.db import DATABASE_ENV
 
 
 @pytest.mark.medium
@@ -71,7 +74,8 @@ def test_a_worker_database_is_empty_and_its_own(run_inner):
 import os
 
 import pytest
-from dfox288_test_preset.db import DATABASE_ENV, admin_connect
+from dfox288_test_preset.admin import connect as admin_connect
+from dfox288_test_preset.db import DATABASE_ENV
 
 
 @pytest.mark.medium
