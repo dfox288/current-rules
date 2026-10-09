@@ -12,13 +12,13 @@ touches (`base..tip`). No stored state, no coverage database. Where it is wrong,
 | Key | What it holds |
 |---|---|
 | `version` | `2`. |
-| `always` | Kinds that run whole with every change, unless every changed file is `untested`. |
-| `untested` | Globs of files no test reads (docs, spikes). They bring in no kind and not `always`; a kind whose own globs match them still runs (docs and `format`). |
+| `always` | Kinds that run whole with every change, unless every changed file is `notest`. |
+| `notest` | Globs of files no test reads (docs, spikes). They bring in no kind and not `always`; a kind whose own globs match them still runs (docs and `format`). A file a test reads is never only `notest`: it is also in that kind's `paths` (tide's `CHANGELOG.md`, which `changelog_shas_test.py` reads). |
 | `kinds.<name>.paths` | Globs of the files that concern the kind. Any match, no order. |
-| `kinds.<name>.tests` | Globs of the kind's test files, by the stack's naming scheme (never a list of file names). A kind with `tests` takes test paths. |
+| `kinds.<name>.tests` | Globs of the kind's test files, by the stack's naming scheme (never a list of file names). A kind with `tests` takes test paths. The globs never match more than the kind's runner collects (a file the runner leaves out would count as a test file and run alone); narrower is harmless, such a file runs the kind whole. |
 | `kinds.<name>.narrow` | The toolchain's import-graph step for this kind (table below). Unset: the kind runs whole. |
 | `kinds.<name>.triggers` | Globs that run the kind whole although it narrows: what its import graph can't see (configs, lockfile, fixtures, i18n, scripts, the test support files). Only on a kind with `narrow`. |
-| `kinds.<name>.edges` | The hand list: `{ paths, tests }` pairs for a file no import shows (a data file a test loads, a script it spawns), and the tests that read it. Only on a kind with `narrow`. |
+| `kinds.<name>.edges` | The hand list: `{ paths, tests }` pairs for a file no import shows (a data file a test loads, a script it spawns), and the tests that read it. Only on a kind with `narrow`; a kind that drops `narrow` moves its `edges` paths into its `paths` first. |
 
 Every kind is in `always` or has `paths`. A kind's name is the gate kind's name in Current's config and the repo's CI.
 Paths use gitignore syntax (as the fence does). The kinds' environment (image, services, tools, env, `describe`) is not
@@ -26,22 +26,23 @@ selection: it is in `checks.kinds.yml` beside this file, which is fenced (`testi
 
 ## Reading rules
 
-For each kind, the first of rules 1 to 7 that applies decides; rule 8 comes after.
+For each kind, the first of rules 1 to 7 that applies decides. Nothing else adds to the selection: not the spec, not
+Current's config.
 
 1. **Everything.** A change to this file, or a changed file that nothing matches (no kind's `paths`, `tests`,
-   `triggers` or `edges` paths, not `untested`), runs every kind whole.
-2. **Always.** A kind in `always` runs whole when some changed file is not `untested`.
+   `triggers` or `edges` paths, not `notest`), runs every kind whole.
+2. **Always.** A kind in `always` runs whole when some changed file is not `notest`.
 3. **The kind's files** are the changed files any of its four lists matches. None: the kind is skipped.
 4. **Trigger.** One of its files matches its `triggers`: the kind runs whole.
 5. **Test files only.** Every one of its files is a test file of the kind (`tests`) that still exists: the kind runs
    those test files and nothing else. A changed test file always runs.
 6. **Narrowed.** The kind has `narrow`: it runs the toolchain's selection over its changed files, plus the `tests` of
    every edge whose `paths` match a changed file, plus its changed test files. A selection of zero tests skips the
-   kind and says so.
+   kind; the reason names the changed files no test imports, so a changed file no test reaches is counted per
+   repo (a coverage signal, not a miss).
 7. **Whole.** Otherwise the kind runs whole. A kind that is slow is made fast (parallel workers, a template database,
    a split project), not selected. Fast is whole in 60 s or less in Current's container, measured by the bench
    report, not gated.
-8. **The spec adds.** Current adds the kinds the spec names, whole. It can only add.
 
 Each decision carries its reason (the rule and the file), and the gate records it beside the result: that record is
 what turns a red full run after the merge into a counted miss (`testing-system.md`).
@@ -59,8 +60,8 @@ A toolchain's step is added here when it has an import graph that reads the tree
 
 ## Checks of the file
 
-A file that is missing or invalid on the base runs everything. The shape test (from the presets; until then the
-repo's own) is red when: a key is unknown; a kind is missing from `checks.kinds.yml`; an `always` entry is not a kind;
+A file that is missing or invalid on the base runs everything, and the gate records why. The shape test (from the
+presets; until then the repo's own) is red when: a key is unknown; a kind is missing from `checks.kinds.yml`; an `always` entry is not a kind;
 a kind has neither `always` nor `paths`; a glob matches no tracked file; a glob is a catch-all (`*`, `**`: a file
 nothing matches already runs everything); an edge's `tests` are not the kind's test files; `triggers` or `edges` sit
 on a kind without `narrow`; `narrow` names a step not in the table above.
@@ -71,7 +72,7 @@ on a kind without `narrow`; `narrow` names a step not in the table above.
 # checks.map.yml: which kinds a change runs (current-rules selection.md). The kinds' environment: checks.kinds.yml.
 version: 2
 always: [lint, format, typecheck]
-untested: ['*.md', 'docs/**', 'spikes/**', '.git-blame-ignore-revs']
+notest: ['*.md', 'docs/**', 'spikes/**', '.git-blame-ignore-revs']
 kinds:
   format: { paths: ['*.md', 'docs/**'] }       # Prettier reads Markdown: a docs change runs format, nothing else
   python:
@@ -111,12 +112,12 @@ kinds whole. A change to `README.md` runs `format`.
 | `gateStatuses`, `floors` | `checks.kinds.yml`, unchanged: what Current and CI do for the repo, not selection |
 | `always` | stays |
 | `rules` (ordered, first match wins) | `kinds.<name>.paths`, any match, no order |
-| `rules` entries with `run: []` or `run: [format]` | `untested`, plus `format`'s own `paths` |
+| `rules` entries with `run: []` or `run: [format]` | `notest`, plus `format`'s own `paths` |
 | `sections` that list test files by name (`web-unit`, the `e2e-*` sections, `py-*`) | gone: `tests` globs, the import graph, or the kind whole |
 | `sections` for tests that read what no import shows (`web-ingest`) | `edges` |
 | `sections` for tests that read source as text (`web-scans`) | `edges` until they are lint rules (`testing.md`), then gone |
 | a kind name in `run` (the whole kind) | the kind's `paths`, or its `triggers` where it narrows |
 | a changed test file runs its section | rule 5 |
 | unmatched file runs everything; a change to the file runs everything | rule 1, unchanged |
-| the spec names a kind or a section | the spec names a kind (rule 8) |
-| Current's `narrowGates` per repo | `narrow` per kind, in the file |
+| the spec names a kind or a section | gone: the selection is this file and the changed files alone |
+| Current's `narrowGates` per repo | gone: `narrow` per kind, in the file, is the only switch |
