@@ -3,8 +3,8 @@
 Every repo Current manages follows this file, in any stack, nx included. Its rules are stack-neutral; how a stack
 meets them is in that stack's binding (`bindings/<stack>.md`). A realm's `standard.md` and traits may add to this file,
 never relax it. A repo's justified differences (a different database engine, private data) are recorded in that repo's
-own trait, not here. How the system runs the tests (when each tier runs, coverage and mutation, how repos stay on
-this file) is in `testing-system.md`, which is not part of a worker's prompt.
+own trait, not here. How the system runs the tests (which checks run where and when, coverage and mutation, how repos
+stay on this file) is in `testing-system.md`, which is not part of a worker's prompt.
 
 Where a framework we use documents a scheme (names, layout, setup), the binding follows it; this file adds rules only
 where the framework says nothing (D-358).
@@ -87,6 +87,17 @@ A test's tier is set by what it may touch, not by how much code it covers.
   reason.
 - **[rule]** A test is deleted, merged into another or moved to another tier only when the spec names it, one
   commit each.
+
+## Which checks run
+
+- **[rule]** A new test file needs no entry in `checks.map.yml`: its kind finds it by the binding's naming scheme. A
+  test that loads a file no import shows (a fixture, a data file, a script it spawns) gets an `edges` entry for that
+  file in the same commit, in a kind that narrows (format: `selection.md` in this repo).
+- **[rule]** While you work, run the tests your change touches: the changed test files and, in a kind that narrows,
+  the tests its toolchain relates to your files (Vitest: `vitest related <files>`). Whole kinds are the gate's; a full
+  run follows every merge.
+- **[rule]** Format, lint and typecheck run in the commit hook on every commit; don't request them as checks. A red
+  hook is fixed, not bypassed.
 
 ## Protected tests and the count guard
 
