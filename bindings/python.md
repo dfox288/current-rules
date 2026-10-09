@@ -42,7 +42,10 @@ The preset sets:
 - **Small's guards:** sockets are blocked (`pytest-socket`); a write outside its own temp dir (`tmp_path`, or one it created through `tempfile`) fails it;
   `TEST_DATABASE_URL` is empty unless the test is marked `medium` or `large`, so the DB helper raises. Sleep and process starts
   are not guarded; the reviewer checks them.
-- **The count guard:** every run states the files and tests it ran; a tier below its floor fails.
+- **The count guard:** every run states the files and tests it ran; a tier below its floor fails. It is the same under
+  xdist: the controller counts, and only it writes the summary.
+- **Parallel runs** (`pytest-xdist`): a run with no `-n` is `-n auto --dist=worksteal`, 4 to 6 workers; `-n0` runs in one
+  process. With `TEST_DATABASE_URL` set, each worker has a database of its own and the variable points at it.
 
 ## Databases
 
@@ -50,3 +53,18 @@ The preset sets:
   production uses; tests never start a container. The preset's DB helper gives each test or file its own schema or
   database and drops it afterwards. An app that ships an in-process database (SQLite) tests on it directly: in memory
   or a file per test file.
+- **[rule]** A database test reads `TEST_DATABASE_URL` when it runs, never at import and never as a hard-coded name:
+  under xdist its value differs per worker, and a copy taken at import points every worker at the same database.
+- **[rule]** A schema per test, not a database per test. Dropping a database makes the server checkpoint at once: 4 to 11 s
+  each with 6 to 8 workers on a slow disk, against a 15 s medium limit. A test that needs its own database (a role, an
+  extension) says why in its docstring.
+
+## Parallel runs
+
+The preset runs the tests in parallel (above), so a test shares nothing it does not own. `testing.md` ("What a test may
+fake") has the rules for ports and server-wide names.
+
+- **[rule]** A file a test writes goes under `tmp_path` or `tempfile`, never a fixed path in the repo or the system temp
+  directory. Two workers writing the same path collide.
+- **[rule]** A collision under parallel is fixed in the test, not hidden by running the suite in one process. A suite
+  that does not pass with the preset's default `-n` is not done: a repo does not add `-n0` to `addopts`.

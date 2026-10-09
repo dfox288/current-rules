@@ -53,7 +53,7 @@ jobs:
       - name: Gate script unit tests
         run: pnpm -C test-presets/gates test
 
-      - name: Shape helper tests (pytest)
+      - name: Preset tests (pytest)
         run: uv run --project test-presets/pytest --frozen pytest test-presets/pytest/tests
 
       - name: Install the fixtures

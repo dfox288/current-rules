@@ -1,12 +1,14 @@
 [project]
 name = "dfox288-test-preset"
-version = "0.3.0"
+version = "0.4.0"
 description = "The pytest preset of the testing baseline: tiers as markers, limits, guards, count guard, DB helper"
 requires-python = ">=3.14"
 dependencies = [
     "pytest==9.1.1",
     "pytest-timeout==2.4.0",
     "pytest-socket==0.8.1",
+    "pytest-xdist==3.8.0",
+    "pg8000==1.31.5",
 ]
 classifiers = ["Framework :: Pytest"]
 

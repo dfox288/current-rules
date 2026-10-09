@@ -47,6 +47,10 @@ A test's tier is set by what it may touch, not by how much code it covers.
 - **[rule]** The test database is production's engine (Postgres for Postgres, SQLite for SQLite), with fresh state
   per test or per file (its own schema, a rolled-back transaction, or its own database file). The binding names the
   one provisioning mechanism for its stack.
+- **[rule]** Tests run in parallel, so a server a test starts itself (stub, proxy, fake tunnel) takes a free port (port 0),
+  never a fixed one and not the app's port block.
+- **[rule]** A name in a server-wide namespace (role, database, replication slot) that a test creates carries a random
+  part, and a query on a server-wide view (`pg_locks`, `pg_stat_activity`) filters on the test's own database.
 - **[rule]** Time is never real: fake timers or an injected clock. Wait for a condition by polling it with a limit;
   never sleep.
 

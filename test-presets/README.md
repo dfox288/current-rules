@@ -13,7 +13,7 @@ its justified differences.
 
 ## Install
 
-Tag `test-presets-v0.3.0`. The two npm packages come from the private registry (see "Release and registry install"
+Tag `test-presets-v0.4.0`. The two npm packages come from the private registry (see "Release and registry install"
 below); the pytest package is a git dependency. Syntax checked against the docs (pnpm: "Install from a
 subdirectory of a Git repository", pnpm.io/package-sources; uv: "Dependency sources, Git, subdirectory",
 docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from this repo's branch.
@@ -21,8 +21,8 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.3.0",
-  "@dfox288/test-gates": "0.3.0"
+  "@dfox288/test-preset-vitest": "0.4.0",
+  "@dfox288/test-gates": "0.4.0"
 }
 ```
 
@@ -32,7 +32,7 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 test = ["dfox288-test-preset", "<the repo's DB driver, if it has a database>"]
 
 [tool.uv.sources]
-dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.3.0" }
+dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.4.0" }
 ```
 
 pnpm fetches a GitHub dependency as a tarball (no `git` needed); uv runs `git`. The built JavaScript (`dist/`) is
@@ -61,8 +61,8 @@ and CI gets read auth the way landfall-ui's workflows do):
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.3.0",
-  "@dfox288/test-gates": "0.3.0"
+  "@dfox288/test-preset-vitest": "0.4.0",
+  "@dfox288/test-gates": "0.4.0"
 }
 ```
 
@@ -98,6 +98,41 @@ Tests carry tags with `it(name, { tags: ['medium'] }, fn)`. Untagged tests in `u
 Installing the package loads the plugin (entry point `pytest11`). Markers `medium`, `large`, `protected`,
 `quarantine`; `--strict-markers` and `--import-mode=importlib` are forced. `dfox288_test_preset.db.open_test_schema`
 takes the repo's `connect(url)` (a DB-API connection) and gives a schema that is dropped on exit.
+`dfox288_test_preset.net.free_port()` gives a free TCP port for a test's own server that cannot bind port 0 (a medium
+test: a small one cannot open a socket).
+
+### Parallel runs
+
+The package depends on `pytest-xdist` and `pg8000` (exact pins), and a repo needs no conftest of its own for any of
+this.
+
+- **Parallel by default.** A run that sets no `-n` runs as `-n auto --dist=worksteal`. `-n0` runs in one process, `-n 3`
+  and `--dist=loadfile` are kept as given, `-p no:xdist` and `--pdb` work as xdist defines them, and
+  `PYTEST_XDIST_AUTO_NUM_WORKERS` sets the count. `auto` is one worker per core, at least 4 and at most 6: a database
+  test waits on the server (commits, a `DROP DATABASE`'s checkpoint) as much as it computes, so 4 workers on 2 cores beat
+  2, and past 6 the workers only queue on the server (lookout#164, medium tier: 75 s in one process, 25 s with 6
+  workers; at 8 the first drops took 11 to 13 s of the 15 s limit). A focused run of one file starts the same workers;
+  use `-n0` for it. `worksteal` beat `load` by about 10% there; `xdist_group` is not honoured under `worksteal`
+  (only `--dist=loadgroup` groups), so a run that needs groups says so.
+- **The count guard is the controller's.** Under xdist the controller sees every report and collects nothing, so each
+  report carries its test's tier, `quarantine` and `protected` marks, read from the markers in the worker that ran it
+  (not from a directory or file name). Only the controller writes the run summary; the line, the summary file and the
+  gate's counts are the same as in one process. Before this the controller counted every test as small and the gate read
+  "ran zero medium tests".
+- **A database per worker.** On an xdist worker with `TEST_DATABASE_URL` set, the worker creates an empty database
+  `dfox288_worker_<run>_<worker>` (from `template0`) on that server when it starts, sets `TEST_DATABASE_URL` to it for
+  itself and the processes it starts, and drops it (`WITH (FORCE)`) at its end; the controller drops any of the run's
+  databases a crashed worker left. The role needs `CREATEDB`. Nothing is created without xdist (`-n0`, `-p no:xdist`) or
+  without the variable. If a worker cannot create its database, each of its tests errors with the reason (never the URL)
+  and `-n0` is the way out. A test reads `TEST_DATABASE_URL` when it runs, never at import. The database is empty:
+  tests still take a schema each (`open_test_schema`) and migrate into it; a template migrated once per worker is not
+  part of this release.
+- **The test Postgres can skip fsync.** `-c fsync=off -c synchronous_commit=off -c full_page_writes=off` on the
+  container only (throwaway data) took lookout's medium tier from 26 s to 15 s on Docker for Mac, where each `DROP
+  DATABASE` waits for a checkpoint. It is the Postgres service's setting, not the preset's: Current's service and a
+  repo's own CI Postgres pass the flags.
+- **Own server ports.** A test's server binds port 0 and reads the port it got; `free_port()` is for one that must be
+  told its port, and has the race of any free-port probe (retry on `EADDRINUSE`).
 
 ## Contract check for fakes
 
@@ -205,11 +240,13 @@ small test still checks for these (ruling 25 leaves process starts and sleeps to
 
 The Vitest preset's reporter uses two members that Vitest does not type (`onAfterSetServer`, `reporters`), so its
 peer `vitest` is an exact version (a repin moves it, the break-its prove the hooks still work). The pytest plugin
-uses private members of pytest, pytest-timeout and `tempfile`; those are pinned the same way, and Python is 3.14.
+uses private members of pytest, pytest-timeout and `tempfile`, and sets pytest-xdist's `numprocesses` and `dist` options
+and reads its `workerinput` (`workerid`, `testrunuid`); those are pinned the same way, and Python is 3.14.
 
 ## Proof
 
-`.github/workflows/test-presets.yml` runs `check:dist`, the gate script's unit tests and the four break-it runs on every pull
+`.github/workflows/test-presets.yml` runs `check:dist`, the gate script's unit tests, the pytest preset's own tests (they
+start pytest, in parallel and not, against the Postgres service) and the four break-it runs on every pull
 request and push to main. `fixtures/break-it.ts` plants each violation and checks the run is red for the stated reason:
 
 ```
