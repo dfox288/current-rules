@@ -1,6 +1,6 @@
 [project]
 name = "dfox288-test-preset"
-version = "0.4.1"
+version = "0.5.0"
 description = "The pytest preset of the testing baseline: tiers as markers, limits, guards, count guard, DB helper"
 requires-python = ">=3.14"
 dependencies = [
@@ -9,8 +9,12 @@ dependencies = [
     "pytest-socket==0.8.1",
     "pytest-xdist==3.8.0",
     "pg8000==1.31.5",
+    "ruff==0.16.10",
 ]
 classifiers = ["Framework :: Pytest"]
+
+[project.scripts]
+dfox288-pre-commit = "dfox288_test_preset.hook:main"
 
 [project.entry-points.pytest11]
 dfox288_test_preset = "dfox288_test_preset.plugin"

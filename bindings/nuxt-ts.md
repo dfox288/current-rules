@@ -40,6 +40,11 @@ The preset sets:
 - **The count guard:** every run states the files and tests it ran; a tier below its floor fails.
 - **The `e2e` build:** the app is built once per run and reused by every `e2e` file; a run that selects no `e2e` file
   does not start it.
+- **The commit hook** (`hooks/pre-commit`, `dfox288-pre-commit`; `test-presets/README.md`, "Commit hooks"): Prettier and
+  ESLint on the staged files, then an incremental typecheck (`vue-tsc -b --noEmit` under `nuxt prepare`'s project
+  references). It formats and re-stages, refuses a partly staged file by name, runs offline from `node_modules/.bin` and
+  never runs a test. A repo points `core.hooksPath` at it (or `exec`s it from a one-line `.githooks/pre-commit`) and
+  keeps no hook rules of its own; the prettier and ESLint configs stay the repo's.
 
 ## Databases
 

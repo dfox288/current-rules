@@ -1,6 +1,6 @@
 {
   "name": "@dfox288/test-preset-vitest",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "The Vitest preset of the testing baseline: tiers as projects, limits, guards, count guard, e2e helpers",
   "license": "UNLICENSED",
   "type": "module",
@@ -27,10 +27,23 @@
     "./db": {
       "types": "./dist/db.d.ts",
       "default": "./dist/db.js"
+    },
+    "./checks-map": {
+      "types": "./dist/checks-map.d.ts",
+      "default": "./dist/checks-map.js"
+    },
+    "./checks-map-test": {
+      "types": "./dist/checks-map-test.d.ts",
+      "default": "./dist/checks-map-test.js"
+    },
+    "./hook": {
+      "types": "./dist/hook.d.ts",
+      "default": "./dist/hook.js"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "hooks"
   ],
   "publishConfig": {
     "registry": "https://npm.registry.tastatur-und-maus.net/"
@@ -65,5 +78,11 @@
     "postgres": "3.4.9",
     "typescript": "~5.9.3",
     "vitest": "5.0.3"
+  },
+  "dependencies": {
+    "yaml": "2.9.1"
+  },
+  "bin": {
+    "dfox288-pre-commit": "./dist/hook-cli.js"
   }
 }

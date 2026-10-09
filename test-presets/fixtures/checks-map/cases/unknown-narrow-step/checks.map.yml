@@ -1,0 +1,17 @@
+# checks.map.yml: which kinds a change runs (current-rules selection.md).
+version: 2
+always: [lint, format]
+notest: ['docs/**']
+kinds:
+  format: { paths: ['*.md'] }
+  test:
+    paths: ['app/**', 'test/unit/**', 'package.json']
+    tests: ['test/unit/**/*.test.ts']
+    narrow: pytest-testmon
+    triggers: [package.json]
+    edges:
+      - paths: [data/table.json]
+        tests: [test/unit/b.test.ts]
+  e2e:
+    paths: ['app/**', 'test/e2e/**']
+    tests: ['test/e2e/**/*.e2e.test.ts']

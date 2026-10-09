@@ -1,6 +1,18 @@
 #!/usr/bin/env node
-import { GATE_NAMES, UsageError, loadConfig, runGates } from './gates.js';
-const usage = `usage: test-gates [--only=<gate>[,<gate>...]] [--raise-floors] [--config=<file>] [--base=<ref>] [--changes=<file>] [--all]\n  gates: ${GATE_NAMES.join(', ')}`;
+import { GATE_NAMES, UsageError, loadConfig, repoPaths, runGates } from './gates.js';
+const usage = `usage: test-gates [--only=<gate>[,<gate>...]] [--raise-floors] [--config=<file>] [--base=<ref>] [--changes=<file>] [--all]
+                  [--related=<file>]... [--tests=<file>]... [--small-tests=<file>]... [--medium-tests=<file>]... [--large-tests=<file>]...
+  gates: ${GATE_NAMES.join(', ')}
+  --related: a changed file for \`vitest related\` (small and medium of a Vitest kind); --tests: a test file to run, in every tier of this run,
+  --<tier>-tests: in that tier only. Paths are relative to the directory the gate runs in; repeat the flag per file.`;
+const TIERS = ['small', 'medium', 'large'];
+/** The value of a `--flag=value` argument; an empty one is a usage error, not "no files". */
+function pathValue(arg) {
+    const value = arg.slice(arg.indexOf('=') + 1);
+    if (value === '')
+        throw new UsageError(`${arg} names no file`);
+    return value;
+}
 async function main() {
     const args = process.argv.slice(2);
     let only;
@@ -9,6 +21,8 @@ async function main() {
     let base;
     let all = false;
     let changes;
+    const related = [];
+    const tests = { small: [], medium: [], large: [] };
     for (const arg of args) {
         if (arg.startsWith('--only=')) {
             only = arg.slice('--only='.length).split(',');
@@ -26,11 +40,25 @@ async function main() {
             all = true;
         else if (arg.startsWith('--config='))
             configFile = arg.slice('--config='.length);
+        else if (arg.startsWith('--related='))
+            related.push(pathValue(arg));
+        else if (arg.startsWith('--tests='))
+            for (const tier of TIERS)
+                tests[tier].push(pathValue(arg));
+        else if (/^--(small|medium|large)-tests=/.test(arg))
+            tests[arg.slice(2, arg.indexOf('-tests='))].push(pathValue(arg));
         else
             throw new UsageError(`unknown argument "${arg}"`);
     }
     const root = process.cwd();
-    const { red } = await runGates(root, loadConfig(root, configFile), { only, raiseFloors, base, all, changes });
+    const narrowing = {};
+    if (related.length > 0)
+        narrowing.related = repoPaths(root, related);
+    const named = TIERS.filter((tier) => tests[tier].length > 0);
+    if (named.length > 0)
+        narrowing.tests = Object.fromEntries(named.map((tier) => [tier, repoPaths(root, tests[tier], { mustExist: true, within: root })]));
+    const narrowed = narrowing.related !== undefined || narrowing.tests !== undefined;
+    const { red } = await runGates(root, loadConfig(root, configFile), { only, raiseFloors, base, all, changes, ...(narrowed ? { narrowing } : {}) });
     process.exit(red ? 1 : 0);
 }
 main().catch((error) => {
