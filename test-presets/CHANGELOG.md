@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## 0.4.0 (2026-10-09)
+
+- pytest preset: parallel runs, from what lookout#164 learned (ruling R116). A repo gets all of it by a repin and removes
+  its own xdist conftest parts (see `README.md`, "Parallel runs"). The package now depends on `pytest-xdist==3.8.0` and
+  `pg8000==1.31.5` (the second only for the worker databases below; `open_test_schema` still takes the repo's driver).
+  - A run that sets no `-n` runs as `-n auto --dist=worksteal`; `auto` is one worker per core, at least 4 and at most 6.
+    `-n0`, an explicit `-n N`, `--dist=...`, `-p no:xdist` and `PYTEST_XDIST_AUTO_NUM_WORKERS` are the run's own say. A
+    repo that must stay serial for now passes `-n0` (or `addopts`); a test that collides under parallel fails and is fixed
+    (testing.md, "What a test may fake"; bindings/python.md, "Parallel runs").
+  - The count guard is correct under xdist: each report carries its test's tier, `quarantine` and `protected` marks
+    (`report.preset_marks`, from the markers in the worker), the controller counts from them, and only the controller
+    writes the run summary. Before, the controller counted every test as small and a worker's partial summary could
+    overwrite the file. The preset's private `_tiers` dict is gone: a repo's shim on it (lookout's `tests/conftest.py`)
+    must be removed with the repin.
+  - A database per worker: on an xdist worker with `TEST_DATABASE_URL` set, `dfox288_worker_<run>_<worker>` is created
+    from `template0` at the worker's start, `TEST_DATABASE_URL` points at it for the worker and its subprocesses, and it
+    is dropped `WITH (FORCE)` at the end; the controller drops a crashed worker's. Nothing is created without xdist or
+    without the variable; a worker that cannot create its database errors its tests with the reason, never the URL. The
+    role needs `CREATEDB`. New in `dfox288_test_preset.db`: `database_url`, `admin_connect`, `create_database`,
+    `drop_database`, `drop_databases_starting_with`.
+  - `dfox288_test_preset.net.free_port()`.
+  - A test that sets its own timeout now fails in setup with the message instead of aborting the run as a usage error: a
+    worker that raises while collecting takes an xdist run down with an INTERNALERROR and no message.
+  - Not done: a template database a repo migrates once per worker (a test still migrates into its own schema); the
+    Postgres service's `fsync=off` (Current's service, README).
+- gate script and Vitest preset: version only, no change.
+
 ## 0.3.0 (2026-10-07)
 
 - both presets: the shape-compare helper for outside-service fakes (`testing.md`, "What a test may fake": each fake has a

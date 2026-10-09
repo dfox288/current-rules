@@ -478,6 +478,25 @@ cases['gates-pytest'] = {
       message: /GATE RED: medium \(2 medium tests is below the floor of 50\)/,
       prepare: withFile('test-floors.json', '{"small": 6, "medium": 50, "large": 1}'),
     },
+    {
+      // The fixture runs in parallel (the preset's default); the controller counts. Before the preset sent each test's
+      // tier with its report, a medium test counted as small there and the tier read "ran zero medium tests".
+      name: 'xdist: a report that reaches the controller without its tier is counted small, the medium tier is red',
+      plant: [],
+      command: [...gatesPyRun, '--only=medium'],
+      expect: 'red',
+      message: /GATE RED: medium \(ran zero medium tests\)/,
+      prepare: (f) => {
+        const file = join(f, 'tests/conftest.py')
+        const before = readFileSync(file, 'utf8')
+        writeFileSync(
+          file,
+          before +
+            '\n\n@pytest.hookimpl(wrapper=True)\ndef pytest_runtest_makereport(item, call):\n    report = yield\n    del report.preset_marks\n    return report\n',
+        )
+        return () => writeFileSync(file, before)
+      },
+    },
   ],
 }
 cases.pytest = { fixture: pytestFixture, cases: pytestCases }
