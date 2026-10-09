@@ -5,7 +5,8 @@ the system (Current's gate, a repo's CI), not part of a worker's prompt; `testin
 When each stage runs the selection is in `testing-system.md`.
 
 The selection is a pure function of two things: this file as it is on the base, and the list of files the change
-touches (`base..tip`). No stored state, no coverage database. Where it is wrong, the full run after the merge finds it.
+touches (`base..tip`). No stored state, no coverage database. Where it is wrong, the full run after the merge finds it:
+on the PR, CI counts a kind Current reports `ran narrowed: <sections>` as gated and does not run it again.
 
 ## Keys
 
