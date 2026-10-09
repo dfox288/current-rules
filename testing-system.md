@@ -12,7 +12,7 @@ selection file's format is in `selection.md`.
 | Worker iterating | Current's worker | The tests of the files it changed: changed test files, and where the kind narrows, the toolchain's selection (`selection.md`) | Narrowed | Never: a whole kind is the gate's |
 | Before the commit | The commit hook | Format and lint on the staged files, typecheck incremental. No tests | Staged files; typecheck whole but incremental | Not applicable |
 | Worker done: the gate | Current, once, on the committed tip | The selection from the base's `checks.map.yml` and `base..tip` (`selection.md`); the `always` kinds | Per kind, by the reading rules | A trigger, a file nothing matches, a change to the selection file, a kind without `narrow`, the `always` kinds (lint, format, typecheck) |
-| Before merge | CI on the PR | Nothing new on the gated tree. What the gate did not cover (a person's PR, a kind Current does not run): the same selection | As at the gate | As at the gate |
+| Before merge | CI on the PR | Nothing new on the gated tree: a kind Current reports `ran narrowed: <sections>` counts as gated and CI does not run it again. What the gate did not cover (a person's PR, a kind Current does not run): the same selection | As at the gate | As at the gate |
 | After merge | CI on Actions, every merge commit on main | Every kind, all tiers the gate covers | Whole | Always |
 | Nightly | CI | All three tiers | Whole | Only if main's head or the test environment (worker image, runtime and package manager versions, tool versions; not lockfile dependencies) changed since the last green full run. No run on the clock alone |
 | Tag or release | CI | A smoke test of the built artifact, plus proof that this commit passed the gate | No full re-run | Never |
