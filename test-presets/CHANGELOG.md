@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.5.1 (2026-10-09)
+
+- Vitest preset: the shape test as a one-line import file no longer stops the medium tier's static scan (horizon-surveyor#320).
+  In 0.5.0 a test file that was only `import '@dfox288/test-preset-vitest/checks-map-test'` made `vitest list --tags-filter
+  medium` fail with `No test suite found in file ...` (the scan reads a file's own source, and the test sat behind the
+  import), so the test gate was red. `defineTestConfig`'s plugin now expands exactly that file into an `it` the scan sees; the
+  test is one `it` (it was two), untagged. A file with anything else in it is unchanged. New export `./checks-map-body`
+  (`checksMapTest`, the test's body). A repo's file stays one line; nothing to change but the repin.
+- Gate script and pytest preset: version only, no change.
+
 ## 0.5.0 (2026-10-09)
 
 Shared commit hooks, the gate script's narrowed runs and the shape test of `checks.map.yml` version 2 (horizon-surveyor#318;

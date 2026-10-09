@@ -36,7 +36,7 @@ function run(name: string) {
 describe('the shape test as a repo runs it', () => {
   it('is green for a valid map', () => {
     const r = run('valid')
-    expect(r.out).toMatch(/Tests\s+2 passed \(2\)/)
+    expect(r.out).toMatch(/Tests\s+1 passed \(1\)/)
     expect(r.status).toBe(0)
   })
   it('is red for a fault, and names it', () => {

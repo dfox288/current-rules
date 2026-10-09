@@ -13,7 +13,7 @@ its justified differences.
 
 ## Install
 
-Tag `test-presets-v0.5.0`. The two npm packages come from the private registry (see "Release and registry install"
+Tag `test-presets-v0.5.1`. The two npm packages come from the private registry (see "Release and registry install"
 below); the pytest package is a git dependency. Syntax checked against the docs (pnpm: "Install from a
 subdirectory of a Git repository", pnpm.io/package-sources; uv: "Dependency sources, Git, subdirectory",
 docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from this repo's branch.
@@ -21,8 +21,8 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.5.0",
-  "@dfox288/test-gates": "0.5.0"
+  "@dfox288/test-preset-vitest": "0.5.1",
+  "@dfox288/test-gates": "0.5.1"
 }
 ```
 
@@ -32,7 +32,7 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 test = ["dfox288-test-preset", "<the repo's DB driver, if it has a database>"]
 
 [tool.uv.sources]
-dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.5.0" }
+dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.5.1" }
 ```
 
 pnpm fetches a GitHub dependency as a tarball (no `git` needed); uv runs `git`. The built JavaScript (`dist/`) is
@@ -61,8 +61,8 @@ and CI gets read auth the way landfall-ui's workflows do):
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.5.0",
-  "@dfox288/test-gates": "0.5.0"
+  "@dfox288/test-preset-vitest": "0.5.1",
+  "@dfox288/test-gates": "0.5.1"
 }
 ```
 
@@ -101,6 +101,12 @@ A repo's whole test file for the map (version 2, `selection.md`) is one line, in
 // test/unit/checks-map.test.ts
 import '@dfox288/test-preset-vitest/checks-map-test'
 ```
+
+Vitest's static scan (`vitest list`, used by the gate's medium tier) reads a test file's own source, and a test behind an
+import is not in it: a file of nothing but an import would stop the scan with `No test suite found`. So `defineTestConfig`'s
+plugin expands a file that is exactly that import (comments around it are fine) into an `it` the scan sees, with the same
+body; a file that has anything else in it is left as written (it registers the test by importing the module). The test
+is one `it`, untagged, so small.
 
 It reads `checks.map.yml` and `checks.kinds.yml` in the git top level (the project may run from a folder below it) and
 the list of tracked files, and is red, naming the kind and the glob, when "Checks of the file" in `selection.md` is

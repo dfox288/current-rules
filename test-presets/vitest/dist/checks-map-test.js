@@ -2,19 +2,9 @@
 //
 //   import '@dfox288/test-preset-vitest/checks-map-test'
 //
-// It registers its tests when imported. Small: it reads the checked-in files and asks git which are tracked.
-import { execFileSync } from 'node:child_process';
-import { describe, expect, it } from 'vitest';
-import { checksMapProblems, readRepoFiles } from './checks-map.js';
-// the map sits in the repo's root; a Vitest project may run from a folder below it (lookout's `web/`)
-const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-const files = readRepoFiles(root);
-describe('checks.map.yml (selection.md, version 2)', () => {
-    it('lists tracked files and finds both files (control: an empty list would fail every glob for the wrong reason)', () => {
-        expect(files.tracked).toContain('checks.map.yml');
-        expect(files.tracked).toContain('checks.kinds.yml');
-    });
-    it('has the shape of version 2', () => {
-        expect(checksMapProblems(files)).toEqual([]);
-    });
-});
+// Importing it registers the test. Vitest's static scan (`vitest list`, which the gate's medium tier uses) reads a file's
+// own source and finds no test behind an import, so the preset's plugin (`defineTestConfig`) expands a test file that is
+// only this import into the three lines below before any tool reads it (`plugin.ts`). Small: untagged.
+import { it } from 'vitest';
+import { checksMapTest } from './checks-map-body.js';
+it('checks.map.yml has the shape of version 2 (selection.md)', checksMapTest);

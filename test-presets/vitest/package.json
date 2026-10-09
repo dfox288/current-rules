@@ -1,6 +1,6 @@
 {
   "name": "@dfox288/test-preset-vitest",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "The Vitest preset of the testing baseline: tiers as projects, limits, guards, count guard, e2e helpers",
   "license": "UNLICENSED",
   "type": "module",
@@ -39,6 +39,10 @@
     "./hook": {
       "types": "./dist/hook.d.ts",
       "default": "./dist/hook.js"
+    },
+    "./checks-map-body": {
+      "types": "./dist/checks-map-body.d.ts",
+      "default": "./dist/checks-map-body.js"
     }
   },
   "files": [
