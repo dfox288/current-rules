@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.5.2 (2026-10-09)
+
+- Vitest preset, the commit hook: it makes `.nuxt/` itself (horizon-surveyor R161). A clone whose install ran without scripts
+  has no `web/.nuxt/`, so every web commit was refused with `Cannot find module '.nuxt/eslint.config.mjs'`. The hook now reads
+  the `.nuxt/...` paths that `eslint.config.*` (when a file to lint is staged) and `tsconfig.json` (when the typecheck runs)
+  point at; if one is missing it prints one line, runs the project's `nuxt prepare` (offline, from `node_modules/.bin`), and
+  then runs Prettier, ESLint and the typecheck as before. It runs once: the files exist for the next commit. If `nuxt` is not
+  installed, prepare fails, or it does not write the file, the commit is refused naming prepare, its error and the file; never
+  a silent skip. A repo with `.nuxt/` pays nothing, and a change that neither ESLint nor the typecheck sees (Markdown, JSON)
+  never prepares. Nothing to change in a repo but the repin.
+- pytest preset and gate script: version only, no change.
+
 ## 0.5.1 (2026-10-09)
 
 - Vitest preset: the shape test as a one-line import file no longer stops the medium tier's static scan (horizon-surveyor#320).

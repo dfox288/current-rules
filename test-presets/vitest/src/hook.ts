@@ -45,6 +45,25 @@ function tool(dir: string, root: string, name: string): string | undefined {
   }
 }
 
+const ESLINT_CONFIGS = ['js', 'mjs', 'cjs', 'ts', 'mts', 'cts'].map((e) => `eslint.config.${e}`)
+const GENERATED = /\.nuxt\/[\w.\-/]*/g
+
+/** The `.nuxt/…` paths that the file names (an import, an `extends`, a reference, an `include`), relative to the project. */
+function generatedIn(dir: string, file: string): string[] {
+  const path = join(dir, file)
+  if (!existsSync(path)) return []
+  return readFileSync(path, 'utf8').match(GENERATED) ?? []
+}
+
+/** The generated files a half of the hook points into that do not exist yet, each with the half that needs it. */
+function missingGenerated(dir: string, lint: boolean, typed: boolean): string[] {
+  const wanted = [
+    ...(lint ? ESLINT_CONFIGS.flatMap((f) => generatedIn(dir, f)) : []),
+    ...(typed ? generatedIn(dir, 'tsconfig.json') : []),
+  ]
+  return [...new Set(wanted)].filter((f) => !existsSync(join(dir, f)))
+}
+
 export function runHook(opts: HookOptions): number {
   const out = opts.stdout ?? ((s) => process.stdout.write(s))
   const err = opts.stderr ?? ((s) => process.stderr.write(s))
@@ -92,13 +111,37 @@ export function runHook(opts: HookOptions): number {
     }
   }
 
+  // A clone whose install ran without scripts has no `.nuxt/`; the ESLint config imports from it and the tsconfig
+  // references it, so make it here, once, instead of refusing every commit with a module error.
+  const typecheck = typed && existsSync(join(dir, 'tsconfig.json'))
+  const missing = missingGenerated(dir, lint.length > 0, typecheck)
+  if (missing.length > 0) {
+    err(`pre-commit: ${missing.join(', ')} missing; running nuxt prepare (offline, once).\n`)
+    const nuxt = need('nuxt')
+    if (!nuxt) return 1
+    const t = performance.now()
+    const r = spawnSync(nuxt, ['prepare'], { cwd: dir, encoding: 'utf8', env: { ...process.env, NUXT_TELEMETRY_DISABLED: '1' } })
+    if (timing) err(`pre-commit: nuxt prepare ${seconds(t)}\n`)
+    if (r.status !== 0) {
+      out(r.stdout ?? '')
+      err(r.stderr ?? '')
+      err(`pre-commit: nuxt prepare failed${r.error ? ` (${r.error.message})` : ` (exit ${r.status})`}, so the generated files the ESLint config and the typecheck need are missing; fix it (output above) and commit again.\n`)
+      return 1
+    }
+    const still = missingGenerated(dir, lint.length > 0, typecheck)
+    if (still.length > 0) {
+      err(`pre-commit: nuxt prepare ran but did not write ${still.join(', ')}; check the Nuxt config (the module that writes it) and commit again.\n`)
+      return 1
+    }
+  }
+
   if (lint.length > 0) {
     const eslint = need('eslint')
     if (!eslint) return 1
     if (!step('eslint', eslint, ['--no-warn-ignored', ...lint], 'eslint found a problem in a staged file (file and rule above); fix it and commit again.')) return 1
   }
 
-  if (typed && existsSync(join(dir, 'tsconfig.json'))) {
+  if (typecheck) {
     const checker = tool(dir, root, 'vue-tsc') ?? tool(dir, root, 'tsc')
     if (!checker) return need('vue-tsc') ? 0 : 1
     // With project references (what `nuxt prepare` writes) the build mode keeps one .tsbuildinfo per project, so a

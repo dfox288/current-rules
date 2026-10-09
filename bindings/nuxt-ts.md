@@ -42,7 +42,8 @@ The preset sets:
   does not start it.
 - **The commit hook** (`hooks/pre-commit`, `dfox288-pre-commit`; `test-presets/README.md`, "Commit hooks"): Prettier and
   ESLint on the staged files, then an incremental typecheck (`vue-tsc -b --noEmit` under `nuxt prepare`'s project
-  references). It formats and re-stages, refuses a partly staged file by name, runs offline from `node_modules/.bin` and
+  references). It runs `nuxt prepare` itself, once, when the `.nuxt/` files the ESLint config or tsconfig point at are missing
+  (a fresh clone), and refuses naming prepare if that fails. It formats and re-stages, refuses a partly staged file by name, runs offline from `node_modules/.bin` and
   never runs a test. A repo points `core.hooksPath` at it (or `exec`s it from a one-line `.githooks/pre-commit`) and
   keeps no hook rules of its own; the prettier and ESLint configs stay the repo's.
 

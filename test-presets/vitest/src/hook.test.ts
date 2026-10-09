@@ -30,6 +30,15 @@ const STUBS: Record<string, string> = {
   'vue-tsc': `
     for (const f of fs.readdirSync('app'))
       if (fs.readFileSync('app/' + f, 'utf8').includes('TYPEERR')) { console.log('app/' + f + '(1,7): error TS2322: Type is not assignable'); process.exit(2) }`,
+  // \`nuxt prepare\` writes the generated files the ESLint config and the tsconfig point at; a PREPARE_FAIL file makes it fail,
+  // PREPARE_EMPTY makes it write nothing.
+  nuxt: `
+    if (fs.existsSync('PREPARE_FAIL')) { console.error('[nuxt] ERROR  Cannot resolve module "@nuxt/kit"'); process.exit(1) }
+    if (!fs.existsSync('PREPARE_EMPTY')) {
+      fs.mkdirSync('.nuxt', { recursive: true })
+      fs.writeFileSync('.nuxt/eslint.config.mjs', 'export default []\\n')
+      fs.writeFileSync('.nuxt/tsconfig.app.json', '{}\\n')
+    }`,
 }
 
 interface Repo {
@@ -37,8 +46,12 @@ interface Repo {
   dir: string
 }
 
-/** A repo with the stub tools in `<sub>/node_modules/.bin` and the file `app/ok.ts` committed. */
-function repo(name: string, opts: { sub?: string; skip?: string[]; tsconfig?: string } = {}): Repo {
+/**
+ * A repo with the stub tools in `<sub>/node_modules/.bin` and the file `app/ok.ts` committed. As after an install, it has the
+ * `.nuxt/` files, an ESLint config that imports `.nuxt/eslint.config.mjs` and a tsconfig that references `.nuxt/tsconfig.app.json`;
+ * `generated: false` is a fresh clone where the install ran without scripts, `eslintConfig: false` a repo with no such config.
+ */
+function repo(name: string, opts: { sub?: string; skip?: string[]; tsconfig?: string; generated?: boolean; eslintConfig?: boolean } = {}): Repo {
   const root = join(scratch, name)
   const dir = opts.sub ? join(root, opts.sub) : root
   mkdirSync(join(dir, 'app'), { recursive: true })
@@ -54,8 +67,14 @@ function repo(name: string, opts: { sub?: string; skip?: string[]; tsconfig?: st
   }
   writeFileSync(join(dir, 'tsconfig.json'), opts.tsconfig ?? '{ "files": [], "references": [{ "path": "./.nuxt/tsconfig.app.json" }] }\n')
   writeFileSync(join(dir, 'package.json'), '{ "type": "commonjs" }\n')
+  if (opts.eslintConfig !== false) writeFileSync(join(dir, 'eslint.config.mjs'), "import withNuxt from './.nuxt/eslint.config.mjs'\nexport default withNuxt()\n")
+  if (opts.generated !== false) {
+    mkdirSync(join(dir, '.nuxt'), { recursive: true })
+    writeFileSync(join(dir, '.nuxt/eslint.config.mjs'), 'export default []\n')
+    writeFileSync(join(dir, '.nuxt/tsconfig.app.json'), '{}\n')
+  }
   writeFileSync(join(dir, 'app/ok.ts'), 'export const ok = 1\n')
-  writeFileSync(join(root, '.gitignore'), 'node_modules\n.calls\n')
+  writeFileSync(join(root, '.gitignore'), 'node_modules\n.calls\n.nuxt\nPREPARE_*\n')
   const git = (...a: string[]) => execFileSync('git', a, { cwd: root, stdio: 'pipe' })
   git('init', '-q')
   git('config', 'user.email', 'a@b.c')
@@ -196,6 +215,112 @@ describe('the Nuxt/TypeScript commit hook', () => {
   })
 })
 
+describe('the hook making .nuxt itself', () => {
+  const NOTICE = /pre-commit: .*\.nuxt\/eslint\.config\.mjs.* missing; running nuxt prepare/
+
+  it('runs nuxt prepare once, says so in one line, then Prettier, ESLint and the typecheck, for a .ts file', () => {
+    const r = repo('prepare-ts', { generated: false })
+    stage(r, 'app/a.ts', 'export const a = 1\n')
+    const h = hook(r)
+    expect(h.code, h.out).toBe(0)
+    expect(tools(h.calls)).toEqual(['prettier', 'nuxt', 'eslint', 'vue-tsc'])
+    expect(h.calls[1]).toBe('nuxt prepare')
+    expect(h.out.split('\n').filter((l) => /nuxt prepare/.test(l))).toHaveLength(1)
+    expect(h.out).toMatch(NOTICE)
+    expect(existsSync(join(r.dir, '.nuxt/eslint.config.mjs'))).toBe(true)
+  })
+
+  it('does the same for a .vue file, below a project directory', () => {
+    const r = repo('prepare-vue', { sub: 'web', generated: false })
+    stage(r, 'web/app/App.vue', '<template><p /></template>\n')
+    const h = hook(r)
+    expect(h.code, h.out).toBe(0)
+    expect(tools(h.calls)).toEqual(['prettier', 'nuxt', 'eslint', 'vue-tsc'])
+    expect(existsSync(join(r.dir, '.nuxt/tsconfig.app.json'))).toBe(true)
+  })
+
+  it('does not run it again on the next commit', () => {
+    const r = repo('prepare-once', { generated: false })
+    stage(r, 'app/a.ts', 'export const a = 1\n')
+    expect(tools(hook(r).calls)).toContain('nuxt')
+    stage(r, 'app/b.ts', 'export const b = 1\n')
+    const second = hook(r)
+    expect(second.code).toBe(0)
+    expect(tools(second.calls)).toEqual(['prettier', 'eslint', 'vue-tsc'])
+    expect(second.out).not.toMatch(/nuxt prepare/)
+  })
+
+  it('runs nothing extra when the .nuxt files are there', () => {
+    const r = repo('prepared')
+    stage(r, 'app/a.ts', 'export const a = 1\n')
+    const h = hook(r)
+    expect(tools(h.calls)).toEqual(['prettier', 'eslint', 'vue-tsc'])
+    expect(h.out).toBe('')
+  })
+
+  it('refuses the commit naming prepare and its error when prepare fails, and runs neither ESLint nor the typecheck', () => {
+    const r = repo('prepare-fails', { generated: false })
+    writeFileSync(join(r.dir, 'PREPARE_FAIL'), '')
+    stage(r, 'app/a.ts', 'export const a = 1\n')
+    const h = hook(r)
+    expect(h.code).toBe(1)
+    expect(h.out).toMatch(/nuxt prepare failed/)
+    expect(h.out).toContain('Cannot resolve module "@nuxt/kit"')
+    expect(tools(h.calls)).toEqual(['prettier', 'nuxt'])
+  })
+
+  it('refuses by name when prepare succeeds but the file is still missing', () => {
+    const r = repo('prepare-empty', { generated: false })
+    writeFileSync(join(r.dir, 'PREPARE_EMPTY'), '')
+    stage(r, 'app/a.ts', 'export const a = 1\n')
+    const h = hook(r)
+    expect(h.code).toBe(1)
+    expect(h.out).toMatch(/nuxt prepare/)
+    expect(h.out).toContain('.nuxt/eslint.config.mjs')
+    expect(tools(h.calls)).toEqual(['prettier', 'nuxt'])
+  })
+
+  it('names a missing nuxt binary and fails, rather than skipping', () => {
+    const r = repo('prepare-no-nuxt', { generated: false, skip: ['nuxt'] })
+    stage(r, 'app/a.ts', 'export const a = 1\n')
+    const h = hook(r)
+    expect(h.code).toBe(1)
+    expect(h.out).toContain('nuxt is not installed')
+  })
+
+  it('prepares for the typecheck alone when only the tsconfig points into .nuxt', () => {
+    const r = repo('prepare-tsc', { generated: false, eslintConfig: false })
+    stage(r, 'tsconfig.json', '{ "files": [], "references": [{ "path": "./.nuxt/tsconfig.app.json" }], "compilerOptions": {} }\n')
+    const h = hook(r)
+    expect(h.code, h.out).toBe(0)
+    expect(tools(h.calls)).toEqual(['prettier', 'nuxt', 'vue-tsc'])
+    expect(h.out).toMatch(/\.nuxt\/tsconfig\.app\.json.* missing; running nuxt prepare/)
+  })
+
+  it('prepares for ESLint alone when only the ESLint config points into .nuxt', () => {
+    const r = repo('prepare-eslint', { generated: false, tsconfig: '{ "compilerOptions": { "strict": true } }\n' })
+    stage(r, 'app/a.ts', 'export const a = 1\n')
+    const h = hook(r)
+    expect(h.code, h.out).toBe(0)
+    expect(tools(h.calls)).toEqual(['prettier', 'nuxt', 'eslint', 'vue-tsc'])
+    expect(h.out).toMatch(/\.nuxt\/eslint\.config\.mjs.* missing/)
+  })
+
+  it('does not prepare when neither the ESLint config nor the tsconfig points into .nuxt', () => {
+    const r = repo('prepare-none', { generated: false, eslintConfig: false, tsconfig: '{ "compilerOptions": { "strict": true } }\n' })
+    stage(r, 'app/a.ts', 'export const a = 1\n')
+    expect(tools(hook(r).calls)).toEqual(['prettier', 'eslint', 'vue-tsc'])
+  })
+
+  it('does not prepare for a change that neither ESLint nor the typecheck sees', () => {
+    const r = repo('prepare-md', { generated: false })
+    stage(r, 'README.md', '# Title\n')
+    const h = hook(r)
+    expect(h.code).toBe(0)
+    expect(tools(h.calls)).toEqual(['prettier'])
+  })
+})
+
 describe('the shipped hooks/pre-commit', () => {
   // The wrapper a repo points core.hooksPath at: it derives the project directory from where the package sits.
   it('is executable, and finds its project directory from the package location', () => {
@@ -221,5 +346,26 @@ describe('the shipped hooks/pre-commit', () => {
     const c = spawnSync('git', ['commit', '-q', '-m', 'x'], { cwd: r.root, encoding: 'utf8' })
     expect(c.status).not.toBe(0)
     expect(`${c.stdout}${c.stderr}`).toContain('no-debugger')
+  })
+  it('makes .nuxt itself on a real commit in a clone without it, and not again on the next', () => {
+    const r = repo('wrapper-fresh', { generated: false })
+    const link = join(r.dir, 'node_modules/@dfox288/test-preset-vitest')
+    mkdirSync(dirname(link), { recursive: true })
+    symlinkSync(pkg, link)
+    execFileSync('git', ['config', 'core.hooksPath', 'node_modules/@dfox288/test-preset-vitest/hooks'], { cwd: r.root })
+    const commit = (file: string, content: string) => {
+      stage(r, file, content)
+      const calls = join(r.root, '.calls')
+      rmSync(calls, { force: true })
+      const c = spawnSync('git', ['commit', '-q', '-m', 'x'], { cwd: r.root, encoding: 'utf8', env: { ...process.env, CALLS: calls } })
+      return { c, calls: existsSync(calls) ? readFileSync(calls, 'utf8') : '' }
+    }
+    const first = commit('app/a.ts', 'export const a = 1\n')
+    expect(first.c.status, `${first.c.stdout}${first.c.stderr}`).toBe(0)
+    expect(first.calls).toContain('nuxt prepare')
+    expect(first.c.stderr).toMatch(/running nuxt prepare/)
+    const second = commit('app/App.vue', '<template><p /></template>\n')
+    expect(second.c.status, `${second.c.stdout}${second.c.stderr}`).toBe(0)
+    expect(second.calls).not.toContain('nuxt')
   })
 })
