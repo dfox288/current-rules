@@ -10,7 +10,15 @@
   import), so the test gate was red. `defineTestConfig`'s plugin now expands exactly that file into an `it` the scan sees; the
   test is one `it` (it was two), untagged. A file with anything else in it is unchanged. New export `./checks-map-body`
   (`checksMapTest`, the test's body). A repo's file stays one line; nothing to change but the repin.
-- Gate script and pytest preset: version only, no change.
+- pytest preset, the commit hook: a repo's ruff table with several entries is honoured whole. 0.5.0 passed the repo's
+  settings as one dotted `--config` override per key, and ruff keeps only the last override for a table, so a
+  `[tool.ruff.lint.per-file-ignores]` with more than one entry applied only its last (a commit that plain `ruff check`
+  passes was refused). A table of plain values (`per-file-ignores`, `isort`, `format`) is now passed as one inline table.
+- pytest preset, the commit hook: the wiring is two lines. A first line, `git diff --cached ... | grep -q '\.py$' || exit 0`,
+  ends a commit with no staged `.py` file before `uv` or ruff start, so a container without `uv` is not refused for a
+  web-only commit; a `.py` commit there still fails loudly. README "Commit hooks" and `bindings/python.md` show it; a test reads the
+  README block and commits through it.
+- Gate script: version only, no change.
 
 ## 0.5.0 (2026-10-09)
 

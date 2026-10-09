@@ -133,12 +133,25 @@ def test_an_excluded_file_is_left_alone(repo):
 
 
 def test_flatten_quotes_keys_and_values():
-    assert hook.flatten({"lint": {"per-file-ignores": {"tests/**": ["S101"]}, "select": ["E"]}, "line-length": 90, "preview": True}) == [
-        'lint.per-file-ignores."tests/**"=["S101"]',
+    assert hook.flatten({"lint": {"per-file-ignores": {"tests/**": ["S101"], "a b": ["F401"]}, "select": ["E"]}, "line-length": 90, "preview": True}) == [
+        'lint.per-file-ignores={"tests/**"=["S101"], "a b"=["F401"]}',
         'lint.select=["E"]',
         "line-length=90",
         "preview=true",
     ]
+
+
+def test_a_table_with_several_entries_is_passed_whole(repo):
+    # ruff keeps only the last of several dotted overrides for one table, so every entry of per-file-ignores must be honoured
+    (repo / "pyproject.toml").write_text('[tool.ruff.lint.per-file-ignores]\n"a/*.py" = ["F401"]\n"b/*.py" = ["F401"]\n"c/*.py" = ["F401", "E741"]\n')
+    stage(repo, "a/x.py", UNUSED_IMPORT)
+    stage(repo, "b/x.py", UNUSED_IMPORT)
+    stage(repo, "c/x.py", UNUSED_IMPORT + "l = 1\n")
+    code, out = run(repo)
+    assert code == 0, out
+    stage(repo, "d/x.py", UNUSED_IMPORT)
+    code, out = run(repo)
+    assert code == 1 and "d/x.py:1:8: F401" in out
 
 
 def test_never_runs_a_type_checker_or_a_test(repo, monkeypatch):
@@ -182,3 +195,55 @@ def test_main_takes_a_directory_below_the_top_level(repo, monkeypatch):
     assert git(repo, "show", ":api/a.py") == FORMATTED
     assert git(repo, "show", ":b.py") == UNFORMATTED
     assert hook.main(["--dir", ".."]) == 2
+
+
+README = Path(__file__).resolve().parents[2] / "README.md"
+
+
+def wired_hook() -> str:
+    """The `.githooks/pre-commit` the README tells a repo to write: the first fenced block that starts with a shebang."""
+    blocks = README.read_text().split("```sh\n")[1:]
+    wanted = [b.split("```")[0] for b in blocks if b.startswith("#!/bin/sh\n# .githooks/pre-commit")]
+    assert len(wanted) == 1, "the README has one .githooks/pre-commit block"
+    return wanted[0]
+
+
+@pytest.fixture
+def no_uv_repo(repo: Path, tmp_path_factory) -> tuple[Path, dict[str, str]]:
+    """A repo wired with the README's hook, and a PATH that has git, sh and grep but no uv (a worker container)."""
+    import os
+    import shutil
+
+    bin_dir = tmp_path_factory.mktemp("bin")
+    for tool in ("git", "sh", "grep", "env", "cat", "dirname", "basename", "mkdir", "rm", "sed", "tr", "head", "sort"):
+        found = shutil.which(tool)
+        if found:
+            (bin_dir / tool).symlink_to(found)
+    assert shutil.which("uv", path=str(bin_dir)) is None
+    hooks = repo / ".githooks"
+    hooks.mkdir()
+    (hooks / "pre-commit").write_text(wired_hook())
+    (hooks / "pre-commit").chmod(0o755)
+    git(repo, "config", "core.hooksPath", ".githooks")
+    return repo, {**os.environ, "PATH": str(bin_dir)}
+
+
+def commit(root: Path, env: dict[str, str], message: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", "commit", "-q", "-m", message], cwd=root, capture_output=True, text=True, env=env)
+
+
+def test_a_commit_without_python_files_never_calls_uv(no_uv_repo):
+    repo, env = no_uv_repo
+    stage(repo, "web/app.ts", "export const a = 1\n")
+    done = commit(repo, env, "web only")
+    assert done.returncode == 0, done.stderr
+    assert git(repo, "log", "-1", "--format=%s") == "web only\n"
+
+
+def test_a_python_commit_without_uv_fails_loudly(no_uv_repo):
+    repo, env = no_uv_repo
+    stage(repo, "a.py", FORMATTED)
+    done = commit(repo, env, "python")
+    assert done.returncode != 0
+    assert "uv" in done.stderr
+    assert git(repo, "log", "-1", "--format=%s") == "init\n"

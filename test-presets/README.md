@@ -223,13 +223,22 @@ The `hooks/pre-commit` file finds its project folder from where the package sits
 pinned by the preset (`ruff==0.16.10`), so the repo's `uv sync --group test` has it and the hook calls `python -m ruff`
 of the same environment. The settings ship in `dfox288_test_preset/ruff.toml` (`line-length = 120`, `target-version
 = "py314"`, rules `E4 E7 E9 F I`); the repo's own `[tool.ruff]` in `pyproject.toml`, or its `ruff.toml` /
-`.ruff.toml`, overrides them key by key (a key the repo sets wins, the rest stays the preset's; the repo's `exclude`
+`.ruff.toml`, overrides them key by key (a key the repo sets wins, the rest stays the preset's; a table such as
+`lint.per-file-ignores` is passed whole, so all its entries count; the repo's `exclude`
 and `extend-exclude` apply to staged files too). Wire it:
 
 ```sh
+#!/bin/sh
 # .githooks/pre-commit        (git config core.hooksPath .githooks)
-exec uv run --no-sync --group test dfox288-pre-commit [--dir api]
+git diff --cached --name-only --diff-filter=ACMR | grep -q '\.py$' || exit 0
+exec uv run --no-sync --group test dfox288-pre-commit
 ```
+
+The first line after the comment is the guard: a commit that stages no `.py` file never starts `uv` or ruff, so a container
+without `uv` (Current's workers on a web-only change) is not refused for it; a commit with a `.py` file there fails loudly
+(`uv: not found`). A repo whose Python sits in a folder appends `--dir <folder>` to the `exec` line and adds the folder
+to the guard's pattern. A repo with both halves puts the Nuxt line (`pnpm exec dfox288-pre-commit`) before this one,
+without `exec`.
 
 ## Gates
 
