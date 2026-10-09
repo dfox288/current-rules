@@ -36,7 +36,8 @@ selection file's format is in `selection.md`.
 - **[rule]** No merge queue now. Later only on our own runners or tooling.
 - **[rule]** Current may change and merge the selection file like any other file: it is read from the base, and a
   change to it runs everything. `.github/` and the files that decide whether a test counts (the gate config, the gate
-  script, the test runners' configs, the root `conftest.py`) stay fenced.
+  script, the test runners' configs, the root `conftest.py`) stay fenced, and so does `checks.kinds.yml`: the kinds'
+  environment (image, services, tools, env) decides how a test runs, and a change to it can turn a test into a skip.
 
 ## Coverage and mutation testing
 

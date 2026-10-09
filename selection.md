@@ -22,7 +22,7 @@ touches (`base..tip`). No stored state, no coverage database. Where it is wrong,
 
 Every kind is in `always` or has `paths`. A kind's name is the gate kind's name in Current's config and the repo's CI.
 Paths use gitignore syntax (as the fence does). The kinds' environment (image, services, tools, env, `describe`) is not
-selection: it is in `checks.kinds.yml` beside this file.
+selection: it is in `checks.kinds.yml` beside this file, which is fenced (`testing-system.md`); this file is not.
 
 ## Reading rules
 
