@@ -39,7 +39,8 @@ For each kind, the first of rules 1 to 7 that applies decides; rule 8 comes afte
    every edge whose `paths` match a changed file, plus its changed test files. A selection of zero tests skips the
    kind and says so.
 7. **Whole.** Otherwise the kind runs whole. A kind that is slow is made fast (parallel workers, a template database,
-   a split project), not selected.
+   a split project), not selected. Fast is whole in 60 s or less in Current's container, measured by the bench
+   report, not gated.
 8. **The spec adds.** Current adds the kinds the spec names, whole. It can only add.
 
 Each decision carries its reason (the rule and the file), and the gate records it beside the result: that record is
