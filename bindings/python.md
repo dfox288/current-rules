@@ -10,6 +10,10 @@ Production code stays free of dependencies unless that would mean building our o
 - **[contract item]** Test-only dependencies are a PEP 735 dependency group in `pyproject.toml`
   (`[dependency-groups] test = [...]`), installed by `uv` with `uv.lock` committed. Production declares no
   dependencies.
+- **[rule]** Format and lint are `ruff`, pinned by the pytest preset (a repo adds no ruff of its own). There is no
+  Python typecheck. The commit hook (`dfox288-pre-commit`, shipped with the preset) runs `ruff format` and `ruff check`
+  on the staged `.py` files with the preset's settings; the repo's `[tool.ruff]` in `pyproject.toml` (or `ruff.toml`)
+  overrides single keys.
 
 ## Layout and names
 
@@ -44,6 +48,9 @@ The preset sets:
   are not guarded; the reviewer checks them.
 - **The count guard:** every run states the files and tests it ran; a tier below its floor fails. It is the same under
   xdist: the controller counts, and only it writes the summary.
+- **The commit hook** (`dfox288-pre-commit`; `test-presets/README.md`, "Commit hooks"): `ruff format` and `ruff check` on the
+  staged `.py` files, offline, never a test, no type checker. A repo wires it as a one-line `.githooks/pre-commit`
+  (`exec uv run --no-sync --group test dfox288-pre-commit`).
 - **Parallel runs** (`pytest-xdist`): a run with no `-n` is `-n auto --dist=worksteal`, 4 to 6 workers; `-n0` runs in one
   process. With `TEST_DATABASE_URL` set, each worker has a database of its own and the variable points at it.
 

@@ -1,0 +1,6 @@
+# checks.kinds.yml: the kinds' environment (current-rules selection.md). The shape test reads the names only.
+version: 1
+kinds:
+  lint: { describe: 'ESLint' }
+  format: { describe: 'Prettier check' }
+  test: { describe: 'Vitest small and medium' }

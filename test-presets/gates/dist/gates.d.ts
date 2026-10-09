@@ -43,9 +43,34 @@ export interface RunSummary {
     mediumFiles?: string[];
 }
 export type Floors = Partial<Record<Tier, number>>;
+/**
+ * A narrowed run (`selection.md`, rules 5 and 6), given by the caller that did the selecting. Absolute paths.
+ * `related` is the kind's changed files for the Vitest `related` step (`narrow: vitest-related`); `tests` are the
+ * test files to run, per tier. A tier with neither runs whole. `related` never applies to the large tier: e2e has no
+ * narrowing step (`selection.md`, "Narrowing steps per toolchain").
+ */
+export interface Narrowing {
+    related?: string[];
+    tests?: Partial<Record<Tier, string[]>>;
+}
+/** What a tier takes from a `Narrowing`: nothing means the tier runs whole. */
+export declare function narrowingFor(narrowing: Narrowing | undefined, tier: Tier): {
+    related: string[];
+    tests: string[];
+} | undefined;
 export declare function loadConfig(root: string, file?: string): GatesConfig;
 export declare class UsageError extends Error {
 }
+/**
+ * The paths a caller names, relative to `base` (the directory the gate runs in, where `gates.config.json` is), as
+ * absolute paths, each once. `mustExist` refuses a path that is not a file (a test file to run); `within` refuses
+ * one outside that directory (the repository: a kind's directory may sit below its root, and a path outside the kind's
+ * directory then starts with `../`).
+ */
+export declare function repoPaths(base: string, paths: string[], options?: {
+    mustExist?: boolean;
+    within?: string;
+}): string[];
 /** One run of a tier. `list`, when set, is the static scan whose files the run is restricted to. */
 export interface TierRun {
     argv: string[];
@@ -63,8 +88,11 @@ export interface TierRun {
  * restricted to those files. The run keeps its `--tags-filter`, so a file that also holds untagged tests still
  * counts only the medium ones. The small run is not scanned: it would save the setup of the few medium files only,
  * and a file whose tests are all generated (`it.each`) is invisible to the scan and would silently drop out of it.
+ *
+ * A narrowed tier (`narrowing`, see `Narrowing`) runs the files it was given and is not scanned: the file set is
+ * already small, and the cross-check needs a whole small run.
  */
-export declare function tierRuns(config: GatesConfig, tier: Tier): TierRun[];
+export declare function tierRuns(config: GatesConfig, tier: Tier, narrowing?: Narrowing): TierRun[];
 /** The argv of each run of a tier, without the file selection. */
 export declare function tierCommands(config: GatesConfig, tier: Tier): string[][];
 /**
@@ -97,10 +125,17 @@ export interface GateResult {
     seconds: number;
     detail: string;
     summary?: RunSummary;
+    /** A narrowed tier: it ran a subset, so it is neither a floor nor a reason for "no gate ran". */
+    narrowed?: boolean;
 }
-/** Judges a finished tier run against the count guard. Returns a failure text, or undefined if it holds. */
-export declare function judgeTier(tier: Tier, exitCode: number, summary: RunSummary | undefined, floors: Floors): {
+/**
+ * Judges a finished tier run against the count guard. Returns a failure text, or undefined if it holds. A narrowed
+ * run is a subset by design: the floor does not apply, and a tier in which nothing was selected is a skip with its
+ * reason (`selection.md`, rule 6), not a failure.
+ */
+export declare function judgeTier(tier: Tier, exitCode: number, summary: RunSummary | undefined, floors: Floors, narrowed?: boolean): {
     failure?: string;
+    skip?: string;
     detail: string;
 };
 /**
@@ -117,11 +152,14 @@ export interface RunOptions {
     all?: boolean;
     /** The docs gate's name-status list instead of a git base. */
     changes?: string;
+    /** A narrowed run: the files `selection.md` picked for the kind. A tier without files runs whole. */
+    narrowing?: Narrowing;
 }
 export declare function loadFloors(root: string, config: GatesConfig): Floors;
 export declare function runGates(root: string, config: GatesConfig, options?: RunOptions): Promise<{
     results: GateResult[];
     red: boolean;
+    noTestRan: boolean;
     verdict: string;
 }>;
 /** Raises a tier's floor to the count of a green run. Never lowers one: a lower floor is a decision. */

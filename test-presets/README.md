@@ -13,7 +13,7 @@ its justified differences.
 
 ## Install
 
-Tag `test-presets-v0.4.1`. The two npm packages come from the private registry (see "Release and registry install"
+Tag `test-presets-v0.5.0`. The two npm packages come from the private registry (see "Release and registry install"
 below); the pytest package is a git dependency. Syntax checked against the docs (pnpm: "Install from a
 subdirectory of a Git repository", pnpm.io/package-sources; uv: "Dependency sources, Git, subdirectory",
 docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from this repo's branch.
@@ -21,8 +21,8 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.4.1",
-  "@dfox288/test-gates": "0.4.1"
+  "@dfox288/test-preset-vitest": "0.5.0",
+  "@dfox288/test-gates": "0.5.0"
 }
 ```
 
@@ -32,7 +32,7 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 test = ["dfox288-test-preset", "<the repo's DB driver, if it has a database>"]
 
 [tool.uv.sources]
-dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.4.1" }
+dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.5.0" }
 ```
 
 pnpm fetches a GitHub dependency as a tarball (no `git` needed); uv runs `git`. The built JavaScript (`dist/`) is
@@ -61,8 +61,8 @@ and CI gets read auth the way landfall-ui's workflows do):
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.4.1",
-  "@dfox288/test-gates": "0.4.1"
+  "@dfox288/test-preset-vitest": "0.5.0",
+  "@dfox288/test-gates": "0.5.0"
 }
 ```
 
@@ -92,6 +92,25 @@ A repo may add `plugins`, `resolve`, `define`, and `test` options with a `justif
 `TZ` cannot be set (the config throws). Helpers: `/db` (`openTestSchema`), `/e2e` (`buildOnce`, `runBuild`,
 `startBuiltApp`, `freePort`), `/e2e/browser` (`launch`, `openPage`, `hitsInside`, `settle`; needs `playwright`).
 Tests carry tags with `it(name, { tags: ['medium'] }, fn)`. Untagged tests in `unit` count as small, untagged tests in `nuxt` count as medium (they boot Nuxt), `e2e` is large.
+
+### The shape test of `checks.map.yml`
+
+A repo's whole test file for the map (version 2, `selection.md`) is one line, in a project that runs `small`:
+
+```ts
+// test/unit/checks-map.test.ts
+import '@dfox288/test-preset-vitest/checks-map-test'
+```
+
+It reads `checks.map.yml` and `checks.kinds.yml` in the git top level (the project may run from a folder below it) and
+the list of tracked files, and is red, naming the kind and the glob, when "Checks of the file" in `selection.md` is
+broken: an unknown key; a kind missing from `checks.kinds.yml`; an `always` entry that is not a kind; a kind with
+neither `always` nor `paths`; a glob that matches no tracked file; a catch-all glob (`*`, `**`); an edge whose `tests`
+are not the kind's test files; `triggers` or `edges` on a kind without `narrow`; a `narrow` that is not a step in
+`selection.md`. It also fails a `version` other than `2` and a key of the wrong type, so a file the gate would
+refuse is red here first. `@dfox288/test-preset-vitest/checks-map` exports `checksMapProblems` and `readRepoFiles` for a
+repo that wants the list itself. The fixture repos (`fixtures/checks-map/cases/`, one per rule) are run by the preset's own tests.
+Globs are read as gitignore patterns, as `selection.md` says (a leading `/` or a slash inside the pattern anchors it; `**`).
 
 ## pytest
 
@@ -170,6 +189,42 @@ A recorded array stands for any number of elements of the shape all its elements
 element); a key some recorded elements lack is optional; an undefined value counts as an absent key. A test run never
 writes a recording: a missing file fails and names `recordAnswer` / `record_answer`.
 
+## Commit hooks
+
+One hook per toolchain, shipped in the package a repo already pins, so a repo copies no rules and no config
+(`testing.md`: format, lint and typecheck run in the hook; a red hook is fixed, not bypassed). Both run offline, from what
+the repo's install brought (Current runs the hook in a worker container without a network), never run a test, format and
+re-stage the staged files, refuse a partly staged file by name (formatting it would stage its unstaged hunks too), and
+name the file and the rule when a tool fails. `PRESET_HOOK_TIMING=1` prints each step's seconds.
+
+**Nuxt / TypeScript** (`@dfox288/test-preset-vitest`): Prettier (`--ignore-unknown --write`), then ESLint
+(`--no-warn-ignored`, no fix) on the staged files, then the typecheck when a `.ts`, `.mts`, `.cts`, `.vue` or
+`tsconfig*.json` is staged. The typecheck is `vue-tsc -b --noEmit` when `tsconfig.json` has `references` (what `nuxt
+prepare` writes; the build mode keeps one `.tsbuildinfo` per project), else `vue-tsc` or `tsc --noEmit --incremental`
+with one build-info file under `node_modules/.cache/dfox288-pre-commit/`. The tools are the repo's own `prettier`,
+`eslint` and `vue-tsc` in `node_modules/.bin`, with the repo's configs; a missing one fails the hook with its name. ESLint
+configs that import `.nuxt` need `nuxt prepare` to have run, as for the rest of the repo. Wire it with one line:
+
+```sh
+git config core.hooksPath node_modules/@dfox288/test-preset-vitest/hooks     # web/node_modules/... for an app below the root
+# or .githooks/pre-commit:   exec pnpm exec dfox288-pre-commit [--dir web]
+```
+
+The `hooks/pre-commit` file finds its project folder from where the package sits (`web/node_modules/...` means `web`);
+`--dir` (or `PRESET_HOOK_DIR`) names it for the other form. Only staged files below that folder are looked at.
+
+**Python** (`dfox288-test-preset`): `ruff format` then `ruff check --no-fix` on the staged `.py` files. No type checker. `ruff` is
+pinned by the preset (`ruff==0.16.10`), so the repo's `uv sync --group test` has it and the hook calls `python -m ruff`
+of the same environment. The settings ship in `dfox288_test_preset/ruff.toml` (`line-length = 120`, `target-version
+= "py314"`, rules `E4 E7 E9 F I`); the repo's own `[tool.ruff]` in `pyproject.toml`, or its `ruff.toml` /
+`.ruff.toml`, overrides them key by key (a key the repo sets wins, the rest stays the preset's; the repo's `exclude`
+and `extend-exclude` apply to staged files too). Wire it:
+
+```sh
+# .githooks/pre-commit        (git config core.hooksPath .githooks)
+exec uv run --no-sync --group test dfox288-pre-commit [--dir api]
+```
+
 ## Gates
 
 `gates.config.json` in the repo: `{ "stack": "vitest" | "pytest", "gates": { "lint": ["pnpm", "lint"], ... } }`; then
@@ -203,6 +258,34 @@ from the run of the tier itself (the preset writes it into the run summary next 
 needs no second command and no database beyond what the tier's run already has; it counts tests that ran, so a
 quarantined `protected` test is not in it. A tier with none says `0`. A preset older than 0.1.3 writes no count and
 the line says `protected not reported`, never `0`. The count is reported, not gated: floors are unchanged.
+
+### Narrowed runs (`--related`, `--tests`)
+
+For a kind with `narrow: vitest-related` (`selection.md`, rule 6) Current passes the changed files and the changed test
+files instead of running the tier whole:
+
+```
+test-gates --only=small,medium --related=web/app/utils/filter.ts --tests=web/test/unit/age.test.ts
+```
+
+- `--related=<file>` (repeatable) is a changed file; the Vitest tiers `small` and `medium` run `vitest related --run
+  <files>` with their usual `--project` and `--tags-filter`, so the tests that import the file run (and a test file given
+  runs itself). `large` never takes it: e2e has no narrowing step, it runs whole or not at all.
+- `--tests=<file>` (repeatable) is a test file, for every tier of the run; `--small-tests=`, `--medium-tests=` and
+  `--large-tests=` give one tier's files only. A tier given only test files runs `vitest run <files>`
+  (pytest: `pytest -m <marker> <files>`). A tier given nothing runs whole.
+- Paths are taken relative to the working directory (Current runs the gate from the kind's `dir`), must be inside the
+  repo, and a test path must exist (a usage error, exit 2, otherwise).
+- A narrowed tier is neither scanned nor floor-checked: the floors and the cross-check describe a whole tier. A narrowed
+  run that selects no test is a skip, not a red: `gates: medium: narrowed: no medium test is related to the selected files
+  (changed files: ...)`, and the gate can still be green (selection.md: "a selection of zero tests skips the kind"): the
+  table shows the tier as skipped with that reason. A mixed run (one tier skipped, another green) is green and exits 0. A
+  narrowed run in which no tier ran a test and nothing is red ends `GATE SKIPPED: narrowed run, no tier selected a test`
+  and exits **66**; Current records that as a skip. `--raise-floors` is refused with either flag.
+- Exit codes: 0 green; 1 red; 2 a usage error; 66 as above (never on a run without `--related` or `--tests`). A path outside
+  the directory the gate runs in starts with `../`; it must still be inside the repository.
+- pytest has no narrowing step (`selection.md`): `--related` on the pytest stack, or on a tier with a `commands`
+  override, is a usage error. `--tests` works on both.
 
 ### The docs gate
 
@@ -252,8 +335,8 @@ and reads its `workerinput` (`workerid`, `testrunuid`); those are pinned the sam
 
 ## Proof
 
-`.github/workflows/test-presets.yml` runs `check:dist`, the gate script's unit tests, the pytest preset's own tests (they
-start pytest, in parallel and not, against the Postgres service) and the four break-it runs on every pull
+`.github/workflows/test-presets.yml` runs `check:dist`, the Vitest preset's unit tests (reporter, the map's shape test, the Nuxt hook), the gate script's unit tests, the pytest preset's own tests (they
+start pytest, in parallel and not, against the Postgres service; the Python hook among them) and the four break-it runs on every pull
 request and push to main. `fixtures/break-it.ts` plants each violation and checks the run is red for the stated reason:
 
 ```

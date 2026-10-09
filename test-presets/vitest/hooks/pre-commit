@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# The Nuxt/TypeScript commit hook of @dfox288/test-preset-vitest. Point git at it:
+#   git config core.hooksPath node_modules/@dfox288/test-preset-vitest/hooks
+# (with the app below the repo root: web/node_modules/@dfox288/test-preset-vitest/hooks). The project folder is the one
+# whose node_modules holds this package. Offline, no tests: Prettier and ESLint on the staged files, then the typecheck.
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+pkg="$(dirname "$here")"
+case "$pkg" in
+  */node_modules/@dfox288/test-preset-vitest) dir="${pkg%/node_modules/@dfox288/test-preset-vitest}" ;;
+  *) dir="" ;;
+esac
+exec node "$pkg/dist/hook-cli.js" ${dir:+--dir "$dir"}

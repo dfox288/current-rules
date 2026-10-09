@@ -21,6 +21,8 @@ interface Case {
   /** `red`: non-zero exit and the message; `green`: exit 0 and the message */
   expect: 'red' | 'green'
   message: RegExp
+  /** the exact exit status, when it matters (66: a narrowed run in which no tier ran a test) */
+  exit?: number
   /** sets the fixture up for the case; returns the function that puts it back */
   prepare?: (fixture: string) => () => void
   /** extra check after the run, returns an error text or undefined */
@@ -300,6 +302,11 @@ const pytestCases: Case[] = [
 ]
 
 const gatesRun = ['pnpm', 'exec', 'test-gates']
+// a source file and the one test that imports it: what a `related` run is told apart on
+const relatedPair = [
+  { from: 'related-only.ts', to: 'app/utils/related-only.ts' },
+  { from: 'related-only.test.ts', to: 'test/unit/related-only.test.ts' },
+]
 const gatesCases: Case[] = [
   {
     name: 'control: all three tiers green against the committed floors',
@@ -424,6 +431,86 @@ const gatesCases: Case[] = [
     message: /^ {2}large: 2 tests, 0 protected$/m,
   },
   {
+    // The fixture's small tier is add.test.ts (2 tests), protected.test.ts (1) and the planted related-only.test.ts (1).
+    name: 'control: the whole small tier with the planted pair has four tests in three files',
+    plant: relatedPair,
+    command: [...gatesRun, '--only=small'],
+    expect: 'green',
+    message: /small +OK +\d+s +4 tests, 3 files \(floor 3\)/,
+  },
+  {
+    name: 'related: a changed file imported by one test runs that test, not the whole tier',
+    plant: relatedPair,
+    command: [...gatesRun, '--only=small', '--related=app/utils/related-only.ts'],
+    expect: 'green',
+    message: /small +OK +\d+s +1 tests, 1 files \(narrowed, floor not checked\)[\s\S]*GATE GREEN/,
+  },
+  {
+    name: 'related: a file two tests import runs both and the floor is not applied',
+    plant: relatedPair,
+    command: [...gatesRun, '--only=small', '--related=app/utils/add.ts'],
+    expect: 'green',
+    message: /small +OK +\d+s +3 tests, 2 files \(narrowed, floor not checked\)/,
+  },
+  {
+    name: 'related: a changed test file runs itself',
+    plant: relatedPair,
+    command: [...gatesRun, '--only=small', '--related=test/unit/related-only.test.ts'],
+    expect: 'green',
+    message: /small +OK +\d+s +1 tests, 1 files \(narrowed/,
+  },
+  {
+    name: 'related: small and medium, the medium tier has nothing related and is skipped with its reason',
+    plant: relatedPair,
+    command: [...gatesRun, '--only=small,medium', '--related=app/utils/related-only.ts'],
+    expect: 'green',
+    message: /^(?=[\s\S]*small +OK +\d+s +1 tests)(?=[\s\S]*medium +skipped +\d+s +narrowed: no medium test is related to the selected files)(?=[\s\S]*GATE GREEN)/,
+    exit: 0,
+  },
+  {
+    name: 'related: a changed file no test imports skips the kind with the files named, and the run exits 66 (no tier ran a test)',
+    plant: [],
+    command: [...gatesRun, '--only=small,medium', '--related=server/api/ping.get.ts'],
+    expect: 'green',
+    exit: 66,
+    message: /^(?=[\s\S]*gates: small: narrowed: no small test is related to the selected files \(changed files: server\/api\/ping\.get\.ts\))(?=[\s\S]*GATE SKIPPED: narrowed run, no tier selected a test)(?![\s\S]*GATE (GREEN|RED))/,
+  },
+  {
+    name: 'related: the large tier is not narrowed by a changed file',
+    plant: [],
+    command: [...gatesRun, '--only=large', '--related=app/utils/add.ts'],
+    expect: 'green',
+    message: /large +OK +\d+s +2 tests, \d+ files \(floor 2\)/,
+  },
+  {
+    name: 'test paths: a tier given one test file runs that file only',
+    plant: relatedPair,
+    command: [...gatesRun, '--only=small', '--small-tests=test/unit/add.test.ts'],
+    expect: 'green',
+    message: /small +OK +\d+s +2 tests, 1 files \(narrowed, floor not checked\)/,
+  },
+  {
+    name: 'test paths: --tests reaches every tier of the run; the nuxt test runs in medium',
+    plant: [],
+    command: [...gatesRun, '--only=small,medium', '--tests=test/unit/add.test.ts', '--tests=test/nuxt/greeting.test.ts'],
+    expect: 'green',
+    message: /^(?=[\s\S]*small +OK +\d+s +2 tests, 1 files)(?=[\s\S]*medium +OK +\d+s +1 tests, 1 files)/,
+  },
+  {
+    name: 'a narrowed run cannot raise floors',
+    plant: [],
+    command: [...gatesRun, '--only=small', '--related=app/utils/add.ts', '--raise-floors'],
+    expect: 'red',
+    message: /--raise-floors raises a floor from a whole tier/,
+  },
+  {
+    name: 'a test path that does not exist is a usage error (exit 2)',
+    plant: [],
+    command: [...gatesRun, '--only=small', '--tests=test/unit/missing.test.ts'],
+    expect: 'red',
+    message: /test\/unit\/missing\.test\.ts does not exist/,
+  },
+  {
     name: 'an unknown gate name is a usage error (exit 2)',
     plant: [],
     command: [...gatesRun, '--only=smol'],
@@ -469,6 +556,28 @@ cases['gates-pytest'] = {
       command: [...gatesPyRun, '--only=large'],
       expect: 'green',
       message: /^ {2}large: 1 tests, 0 protected$/m,
+    },
+    {
+      name: 'related: pytest has no narrowing step, a usage error (exit 2)',
+      plant: [],
+      command: [...gatesPyRun, '--only=small', '--related=src/fixture_pkg/__init__.py'],
+      expect: 'red',
+      message: /pytest has no narrowing step/,
+    },
+    {
+      name: 'test paths: a pytest tier given one file runs that file only',
+      plant: [],
+      command: [...gatesPyRun, '--only=small', '--small-tests=tests/test_add.py'],
+      expect: 'green',
+      message: /small +OK +\d+s +2 tests, 1 files \(narrowed, floor not checked\)/,
+    },
+    {
+      name: 'test paths: a file with no test of the tier is a skip with its reason, not a failure; the run exits 66',
+      plant: [],
+      command: [...gatesPyRun, '--only=small', '--small-tests=tests/test_medium.py'],
+      expect: 'green',
+      exit: 66,
+      message: /^(?=[\s\S]*small +skipped +\d+s +narrowed: no small test is related to the selected files)(?=[\s\S]*GATE SKIPPED: narrowed run, no tier selected a test)/,
     },
     {
       name: 'a pytest tier below its floor fails the gate',
@@ -529,12 +638,12 @@ for (const c of plan.cases) {
     const [cmd, ...args] = c.command
     const r = spawnSync(cmd, args, { cwd: plan.fixture, encoding: 'utf8', env: process.env })
     const out = `${r.stdout}\n${r.stderr}`.replace(/\u001b\[[0-9;]*m/g, '')
-    const statusOk = c.expect === 'red' ? r.status !== 0 : r.status === 0
+    const statusOk = c.exit !== undefined ? r.status === c.exit : c.expect === 'red' ? r.status !== 0 : r.status === 0
     const matched = c.message.test(out)
     const extra = c.after?.(plan.fixture)
     const ok = statusOk && matched && !extra
     if (!ok) bad++
-    const first = out.split('\n').find((l) => /GATE (RED|GREEN)|Error:|\[test-preset\] (FAIL|FLAKY)|exited|test-gates:/.test(l))
+    const first = out.split('\n').find((l) => /GATE (RED|GREEN|SKIPPED)|Error:|\[test-preset\] (FAIL|FLAKY)|exited|test-gates:/.test(l))
     console.log(
       `${ok ? 'OK ' : 'BAD'} ${c.expect.toUpperCase().padEnd(5)} ${c.name} (exit ${r.status})` +
         (first ? `\n      ${first.trim().slice(0, 220)}` : '') +

@@ -3,7 +3,7 @@
 // lint and format run first and stop the run when red; the others run on and the summary names every red
 // gate. A gate is never piped: each command is spawned directly and its exit code is the gate's result.
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, createWriteStream } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, createWriteStream } from 'node:fs'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { DocsConfig } from './docs.js'
 
@@ -50,6 +50,24 @@ export interface RunSummary {
 
 export type Floors = Partial<Record<Tier, number>>
 
+/**
+ * A narrowed run (`selection.md`, rules 5 and 6), given by the caller that did the selecting. Absolute paths.
+ * `related` is the kind's changed files for the Vitest `related` step (`narrow: vitest-related`); `tests` are the
+ * test files to run, per tier. A tier with neither runs whole. `related` never applies to the large tier: e2e has no
+ * narrowing step (`selection.md`, "Narrowing steps per toolchain").
+ */
+export interface Narrowing {
+  related?: string[]
+  tests?: Partial<Record<Tier, string[]>>
+}
+
+/** What a tier takes from a `Narrowing`: nothing means the tier runs whole. */
+export function narrowingFor(narrowing: Narrowing | undefined, tier: Tier): { related: string[]; tests: string[] } | undefined {
+  const related = tier === 'large' ? [] : (narrowing?.related ?? [])
+  const tests = narrowing?.tests?.[tier] ?? []
+  return related.length > 0 || tests.length > 0 ? { related: [...new Set(related)], tests: [...new Set(tests)] } : undefined
+}
+
 export function loadConfig(root: string, file = 'gates.config.json'): GatesConfig {
   const path = join(root, file)
   if (!existsSync(path)) throw new UsageError(`no ${file} in ${root}`)
@@ -60,6 +78,29 @@ export function loadConfig(root: string, file = 'gates.config.json'): GatesConfi
 }
 
 export class UsageError extends Error {}
+
+/**
+ * The paths a caller names, relative to `base` (the directory the gate runs in, where `gates.config.json` is), as
+ * absolute paths, each once. `mustExist` refuses a path that is not a file (a test file to run); `within` refuses
+ * one outside that directory (the repository: a kind's directory may sit below its root, and a path outside the kind's
+ * directory then starts with `../`).
+ */
+export function repoPaths(base: string, paths: string[], options: { mustExist?: boolean; within?: string } = {}): string[] {
+  const out = new Set<string>()
+  for (const path of paths) {
+    const absolute = resolve(base, path)
+    if (options.within) {
+      const rel = relative(options.within, absolute)
+      if (rel === '' || rel.startsWith('..') || isAbsolute(rel))
+        throw new UsageError(`${path} is outside ${options.within}`)
+    }
+    if (options.mustExist && !isFile(absolute)) throw new UsageError(`${path} does not exist`)
+    out.add(absolute)
+  }
+  return [...out]
+}
+
+const isFile = (path: string) => existsSync(path) && statSync(path).isFile()
 
 /** One run of a tier. `list`, when set, is the static scan whose files the run is restricted to. */
 export interface TierRun {
@@ -79,14 +120,28 @@ export interface TierRun {
  * restricted to those files. The run keeps its `--tags-filter`, so a file that also holds untagged tests still
  * counts only the medium ones. The small run is not scanned: it would save the setup of the few medium files only,
  * and a file whose tests are all generated (`it.each`) is invisible to the scan and would silently drop out of it.
+ *
+ * A narrowed tier (`narrowing`, see `Narrowing`) runs the files it was given and is not scanned: the file set is
+ * already small, and the cross-check needs a whole small run.
  */
-export function tierRuns(config: GatesConfig, tier: Tier): TierRun[] {
+export function tierRuns(config: GatesConfig, tier: Tier, narrowing?: Narrowing): TierRun[] {
+  const narrowed = narrowingFor(narrowing, tier)
+  // The files a narrowed run ends with, each once: the changed files first, then the test files.
+  const files = narrowed ? [...new Set([...narrowed.related, ...narrowed.tests])] : []
   const own = config.commands?.[tier]
-  if (own) return [{ argv: own }]
+  if (own) {
+    if (narrowed && narrowed.related.length > 0)
+      throw new UsageError(`commands.${tier} is the repo's own command: it has no related step, so it cannot take --related`)
+    return [{ argv: [...own, ...files] }]
+  }
   if (config.stack === 'vitest') {
-    const base = ['pnpm', 'exec', 'vitest', 'run']
+    // `vitest related --run <files>` runs the tests that import the files, and a test file given runs itself.
+    // With test paths alone the run is `vitest run <paths>`. A narrowed run may select nothing in a project: not an error.
+    const related = (narrowed?.related.length ?? 0) > 0
+    const base = related ? ['pnpm', 'exec', 'vitest', 'related', '--run'] : ['pnpm', 'exec', 'vitest', 'run']
+    const tail = narrowed ? ['--passWithNoTests', ...files] : []
     const projects = (names: string[]) => names.flatMap((p) => ['--project', p])
-    if (tier === 'large') return [{ argv: [...base, ...projects(config.projects?.large ?? ['e2e'])] }]
+    if (tier === 'large') return [{ argv: [...base, ...projects(config.projects?.large ?? ['e2e']), ...tail] }]
     const smallMedium = config.projects?.smallMedium ?? ['unit', 'nuxt']
     const nuxt = smallMedium.filter((p) => p === 'nuxt')
     const others = smallMedium.filter((p) => p !== 'nuxt')
@@ -98,18 +153,21 @@ export function tierRuns(config: GatesConfig, tier: Tier): TierRun[] {
           ...projects(others),
           '--tags-filter',
           tier === 'small' ? '!medium' : 'medium',
-          ...(nuxt.length > 0 ? ['--passWithNoTests'] : []),
+          ...(narrowed ? [] : nuxt.length > 0 ? ['--passWithNoTests'] : []),
+          ...tail,
         ],
-        ...(tier === 'medium'
+        ...(tier === 'medium' && !narrowed
           ? { list: ['pnpm', 'exec', 'vitest', 'list', '--tags-filter', 'medium', ...projects(others), '--json'] }
           : {}),
       })
-    if (tier === 'medium' && nuxt.length > 0) runs.push({ argv: [...base, ...projects(nuxt)] })
+    if (tier === 'medium' && nuxt.length > 0) runs.push({ argv: [...base, ...projects(nuxt), ...tail] })
     return runs
   }
+  if (narrowed && narrowed.related.length > 0)
+    throw new UsageError('pytest has no narrowing step (selection.md): the python kind runs whole; give test paths with --tests')
   const marker =
     tier === 'small' ? 'not medium and not large' : tier === 'medium' ? 'medium' : 'large'
-  return [{ argv: ['uv', 'run', '--group', 'test', 'pytest', '-m', marker] }]
+  return [{ argv: ['uv', 'run', '--group', 'test', 'pytest', '-m', marker, ...files] }]
 }
 
 /** The argv of each run of a tier, without the file selection. */
@@ -217,15 +275,22 @@ export interface GateResult {
   seconds: number
   detail: string
   summary?: RunSummary
+  /** A narrowed tier: it ran a subset, so it is neither a floor nor a reason for "no gate ran". */
+  narrowed?: boolean
 }
 
-/** Judges a finished tier run against the count guard. Returns a failure text, or undefined if it holds. */
+/**
+ * Judges a finished tier run against the count guard. Returns a failure text, or undefined if it holds. A narrowed
+ * run is a subset by design: the floor does not apply, and a tier in which nothing was selected is a skip with its
+ * reason (`selection.md`, rule 6), not a failure.
+ */
 export function judgeTier(
   tier: Tier,
   exitCode: number,
   summary: RunSummary | undefined,
   floors: Floors,
-): { failure?: string; detail: string } {
+  narrowed = false,
+): { failure?: string; skip?: string; detail: string } {
   if (exitCode !== 0) return { failure: `exit ${exitCode}`, detail: '' }
   if (!summary)
     return {
@@ -233,6 +298,11 @@ export function judgeTier(
       detail: '',
     }
   const t = summary.tiers[tier]
+  if (narrowed) {
+    const detail = `${t.tests} tests, ${t.files} files (narrowed, floor not checked), flaky ${summary.flaky.length}, quarantined ${summary.quarantined}`
+    if (t.tests === 0) return { skip: `narrowed: no ${tier} test is related to the selected files`, detail }
+    return { detail }
+  }
   const floor = floors[tier]
   const detail = `${t.tests} tests, ${t.files} files (floor ${floor ?? 'none'}), flaky ${summary.flaky.length}, quarantined ${summary.quarantined}`
   if (t.tests === 0) return { failure: `ran zero ${tier} tests`, detail }
@@ -287,6 +357,8 @@ export interface RunOptions {
   all?: boolean
   /** The docs gate's name-status list instead of a git base. */
   changes?: string
+  /** A narrowed run: the files `selection.md` picked for the kind. A tier without files runs whole. */
+  narrowing?: Narrowing
 }
 
 export function loadFloors(root: string, config: GatesConfig): Floors {
@@ -297,6 +369,11 @@ export function loadFloors(root: string, config: GatesConfig): Floors {
 export async function runGates(root: string, config: GatesConfig, options: RunOptions = {}) {
   const floors = loadFloors(root, config)
   const tiers = config.tiers ?? [...TIERS]
+  const narrowing = options.narrowing
+  if (narrowing && options.raiseFloors)
+    throw new UsageError('--raise-floors raises a floor from a whole tier: not together with --related or --tests')
+  // a combination that cannot run (related on pytest, on a repo's own tier command) is refused before any gate runs
+  for (const tier of TIERS) if (tiers.includes(tier) && (!options.only || options.only.includes(tier))) tierRuns(config, tier, narrowing)
   const results: GateResult[] = []
   let stop = false
   /** The medium files the small run saw, and the files the medium scan selected: the scan's cross-check. */
@@ -322,7 +399,8 @@ export async function runGates(root: string, config: GatesConfig, options: RunOp
         continue
       }
       console.log(`\n=== ${name} ===`)
-      const commands = tierRuns(config, tier)
+      const commands = tierRuns(config, tier, narrowing)
+      const narrowedTier = narrowingFor(narrowing, tier)
       let code = commands.length === 0 ? 1 : 0
       let selectionError: string | undefined
       const parts: RunSummary[] = []
@@ -356,15 +434,17 @@ export async function runGates(root: string, config: GatesConfig, options: RunOp
           ...process.env,
           TEST_PRESET_SUMMARY: summaryPath,
         })
-        if (c !== 0 && code === 0) code = c
+        // pytest exits 5 when it collected nothing: in a narrowed run that is "no test selected", judged below
+        const exit = narrowedTier && config.stack === 'pytest' && !config.commands?.[tier] && c === 5 ? 0 : c
+        if (exit !== 0 && code === 0) code = exit
         if (existsSync(summaryPath)) parts.push(JSON.parse(readFileSync(summaryPath, 'utf8')) as RunSummary)
       }
       // a run that wrote no summary leaves the tier unmeasured
       const summary = parts.length === commands.length && parts.length > 0 ? mergeSummaries(parts) : undefined
       if (tier === 'small') mediumSeen = crossCheckList(config, summary)
-      let judged = selectionError
+      let judged: { failure?: string; skip?: string; detail: string } = selectionError
         ? { failure: selectionError, detail: '' }
-        : judgeTier(tier, code, summary, floors)
+        : judgeTier(tier, code, summary, floors, narrowedTier !== undefined)
       if (tier === 'medium' && scannedAny && !selectionError) {
         const missed = missedByScan(mediumSeen, scanned)
         if (missed && missed.length > 0) {
@@ -373,12 +453,17 @@ export async function runGates(root: string, config: GatesConfig, options: RunOp
           judged = { failure: judged.failure ? `${judged.failure}; ${failure}` : failure, detail: judged.detail }
         } else console.log('gates: medium: the static scan selected every file the small run saw medium tests in')
       }
+      if (judged.skip && narrowedTier) {
+        const named = narrowedTier.related.map((f) => relative(root, f)).join(', ')
+        console.log(`gates: ${name}: ${judged.skip}${named ? ` (changed files: ${named})` : ''}`)
+      }
       results.push({
         name,
-        status: judged.failure ? 'failed' : 'ok',
+        status: judged.failure ? 'failed' : judged.skip ? 'skipped' : 'ok',
         seconds: seconds(),
-        detail: judged.failure ?? judged.detail,
+        detail: judged.failure ?? judged.skip ?? judged.detail,
         summary,
+        ...(narrowedTier ? { narrowed: true } : {}),
       })
       continue
     }
@@ -416,17 +501,25 @@ export async function runGates(root: string, config: GatesConfig, options: RunOp
   for (const r of results)
     for (const label of r.summary?.flaky ?? []) console.log(`  FLAKY (passed on retry): ${label}`)
   // Nothing measured is not green.
-  const ranNothing = results.every((r) => r.status === 'skipped')
+  const ranNothing = results.every((r) => r.status === 'skipped' && !r.narrowed)
 
   if (options.raiseFloors && red.length === 0 && !ranNothing) raiseFloors(root, config, floors, results)
+
+  // A narrowed run in which every narrowed tier selected nothing and nothing is red: no test ran (exit 66, selection.md
+  // "The gate script's arguments"). A mixed run, one tier skipped and another green, stays green.
+  const tierResults = results.filter((r) => (TIERS as readonly string[]).includes(r.name))
+  const noTestRan =
+    !ranNothing && red.length === 0 && tierResults.some((r) => r.narrowed) && tierResults.every((r) => r.status === 'skipped')
 
   const verdict = ranNothing
     ? 'GATE RED: no gate ran'
     : red.length === 0
-      ? `GATE GREEN (quarantined: ${quarantined}, flaky: ${flaky})`
+      ? noTestRan
+        ? 'GATE SKIPPED: narrowed run, no tier selected a test'
+        : `GATE GREEN (quarantined: ${quarantined}, flaky: ${flaky})`
       : `GATE RED: ${red.map((r) => (r.detail ? `${r.name} (${r.detail})` : r.name)).join(', ')}`
   console.log(verdict)
-  return { results, red: red.length > 0 || ranNothing, verdict }
+  return { results, red: red.length > 0 || ranNothing, noTestRan, verdict }
 }
 
 /** Raises a tier's floor to the count of a green run. Never lowers one: a lower floor is a decision. */
@@ -434,7 +527,7 @@ export function raiseFloors(root: string, config: GatesConfig, floors: Floors, r
   const next: Floors = { ...floors }
   let changed = false
   for (const r of results) {
-    if (r.status !== 'ok' || !r.summary || !(TIERS as readonly string[]).includes(r.name)) continue
+    if (r.status !== 'ok' || r.narrowed || !r.summary || !(TIERS as readonly string[]).includes(r.name)) continue
     const tier = r.name as Tier
     const count = r.summary.tiers[tier].tests
     if (count > (next[tier] ?? 0)) {

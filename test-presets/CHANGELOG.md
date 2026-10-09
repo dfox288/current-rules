@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## 0.5.0 (2026-10-09)
+
+Shared commit hooks, the gate script's narrowed runs and the shape test of `checks.map.yml` version 2 (horizon-surveyor#318;
+rulings R110, R139, R142, R144). All three packages move to 0.5.0. A repo gets each piece by a repin; nothing changes for a
+repo that uses none of them.
+
+- Commit hooks, one per toolchain, shipped in the package a repo already pins (`README.md`, "Commit hooks"). Offline, no
+  tests, formatted files re-staged, a partly staged file refused by name.
+  - `@dfox288/test-preset-vitest`: `hooks/pre-commit` and the `dfox288-pre-commit` bin run Prettier and ESLint on the
+    staged files and an incremental typecheck (`vue-tsc -b --noEmit` under project references). New export `./hook`.
+  - `dfox288-test-preset`: the `dfox288-pre-commit` script runs `ruff format` and `ruff check` on the staged `.py` files
+    with the settings shipped in `dfox288_test_preset/ruff.toml`; the repo's `[tool.ruff]` / `ruff.toml` overrides single
+    keys. `ruff==0.16.10` is now a dependency of the package. No Python typecheck (R144).
+- Gate script: `--related=<file>`, `--tests=<file>`, `--small-tests=`, `--medium-tests=`, `--large-tests=` (repeatable). A
+  Vitest tier given `--related` runs `vitest related --run <files>` (a test file given runs itself); test paths alone
+  run `vitest run <files>`; a narrowed tier is not scanned or floor-checked and, selecting nothing, is skipped with the
+  changed files named, not red; a narrowed run in which no tier ran a test and nothing is red exits 66 (a mixed run
+  stays 0), the contract of `selection.md`, "The gate script's arguments". `large` is never narrowed; `--raise-floors` is refused with either flag; `--related` on the
+  pytest stack or on a `commands` tier is a usage error. A run without the flags is unchanged.
+- Vitest preset: the shape test of `checks.map.yml` version 2. A repo's test file is
+  `import '@dfox288/test-preset-vitest/checks-map-test'`; it is red on every rule of `selection.md`, "Checks of the file".
+  New exports `./checks-map` and `./checks-map-test`; new dependency `yaml` (2.9.1).
+
 ## 0.4.1 (2026-10-09)
 
 - pytest preset: the worker databases are made and dropped in a child process (ruling R133, from lookout#165). 0.4.0

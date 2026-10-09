@@ -64,6 +64,23 @@ what turns a red full run after the merge into a counted miss (`testing-system.m
 A toolchain's step is added here when it has an import graph that reads the tree alone. It sits on top of rules 1 to
 5; it is never the base.
 
+## The gate script's arguments
+
+A kind's command stays `node scripts/gates.mjs --only=<kind>`, run in the kind's directory. The selection reaches the
+script as arguments, repeatable flags that name files:
+
+| Rule | Arguments |
+|---|---|
+| 6, narrowed | `--related=<file>` for each of the kind's changed files that is not one of its test files; `--tests=<file>` for each edge test and each changed test file of the kind. |
+| 5, test files only | `--tests=<file>` for each test file. Any kind with `tests`, narrowed or not (`python`). |
+| 1, 2, 4, 7, whole | none. |
+
+Paths are relative to the kind's directory, where the script runs; a repo-relative path outside it starts with `../`.
+Exit codes: 0 green; 66 when the run was narrowed (`--related` or `--tests` given), no tier ran a test (every narrowed
+tier selected nothing) and nothing was red; any red keeps its usual non-zero code; 2 is a usage error. A run with some
+tiers skipped and another tier green exits 0. 66 on a whole run (no flags) is a failure. The gate records 66 on a narrowed
+run as a skip, the reason naming the files. A version 1 map keeps its own behaviour: the kind runs whole at the gate.
+
 ## Checks of the file
 
 A file that is missing or invalid on the base runs everything, and the gate records why. The shape test (from the

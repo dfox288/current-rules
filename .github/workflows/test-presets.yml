@@ -46,7 +46,7 @@ jobs:
 
       - name: dist is fresh (vitest)
         run: pnpm -C test-presets/vitest check:dist
-      - name: Reporter unit tests (vitest)
+      - name: Unit tests (vitest) - reporter, map shape test, Nuxt hook
         run: pnpm -C test-presets/vitest test
       - name: dist is fresh (gates)
         run: pnpm -C test-presets/gates check:dist
