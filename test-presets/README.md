@@ -13,7 +13,7 @@ its justified differences.
 
 ## Install
 
-Tag `test-presets-v0.5.1`. The two npm packages come from the private registry (see "Release and registry install"
+Tag `test-presets-v0.5.2`. The two npm packages come from the private registry (see "Release and registry install"
 below); the pytest package is a git dependency. Syntax checked against the docs (pnpm: "Install from a
 subdirectory of a Git repository", pnpm.io/package-sources; uv: "Dependency sources, Git, subdirectory",
 docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from this repo's branch.
@@ -21,8 +21,8 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.5.1",
-  "@dfox288/test-gates": "0.5.1"
+  "@dfox288/test-preset-vitest": "0.5.2",
+  "@dfox288/test-gates": "0.5.2"
 }
 ```
 
@@ -32,7 +32,7 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 test = ["dfox288-test-preset", "<the repo's DB driver, if it has a database>"]
 
 [tool.uv.sources]
-dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.5.1" }
+dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.5.2" }
 ```
 
 pnpm fetches a GitHub dependency as a tarball (no `git` needed); uv runs `git`. The built JavaScript (`dist/`) is
@@ -61,8 +61,8 @@ and CI gets read auth the way landfall-ui's workflows do):
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.5.1",
-  "@dfox288/test-gates": "0.5.1"
+  "@dfox288/test-preset-vitest": "0.5.2",
+  "@dfox288/test-gates": "0.5.2"
 }
 ```
 
@@ -209,7 +209,10 @@ name the file and the rule when a tool fails. `PRESET_HOOK_TIMING=1` prints each
 prepare` writes; the build mode keeps one `.tsbuildinfo` per project), else `vue-tsc` or `tsc --noEmit --incremental`
 with one build-info file under `node_modules/.cache/dfox288-pre-commit/`. The tools are the repo's own `prettier`,
 `eslint` and `vue-tsc` in `node_modules/.bin`, with the repo's configs; a missing one fails the hook with its name. ESLint
-configs that import `.nuxt` need `nuxt prepare` to have run, as for the rest of the repo. Wire it with one line:
+configs and tsconfigs that point into `.nuxt/` (an import, an `extends`, a reference) need the generated files: when one the
+staged change needs is missing (a fresh clone whose install ran without scripts), the hook runs the repo's own `nuxt prepare`
+once (offline), says so in one line, and goes on; if prepare fails or does not write the file, the commit is refused naming
+prepare and its error. With `.nuxt/` there, nothing extra runs. Wire it with one line:
 
 ```sh
 git config core.hooksPath node_modules/@dfox288/test-preset-vitest/hooks     # web/node_modules/... for an app below the root

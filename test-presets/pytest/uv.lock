@@ -22,7 +22,7 @@ wheels = [
 
 [[package]]
 name = "dfox288-test-preset"
-version = "0.5.1"
+version = "0.5.2"
 source = { editable = "." }
 dependencies = [
     { name = "pg8000" },

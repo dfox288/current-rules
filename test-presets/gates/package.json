@@ -1,6 +1,6 @@
 {
   "name": "@dfox288/test-gates",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "The shared gate script of the testing baseline: one set of gate names for Vitest and pytest repos",
   "license": "UNLICENSED",
   "type": "module",
