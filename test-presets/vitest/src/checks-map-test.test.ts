@@ -22,8 +22,15 @@ function run(name: string) {
   writeFileSync(join(root, 'test/unit/checks-map.test.ts'), `import '${join(pkg, 'dist/checks-map-test.js')}'\n`)
   execFileSync('git', ['init', '-q'], { cwd: root })
   execFileSync('git', ['add', '-A'], { cwd: root })
-  const r = spawnSync(join(pkg, 'node_modules/.bin/vitest'), ['run', '--root', 'test/unit', 'checks-map'], { cwd: root, encoding: 'utf8' })
-  return { status: r.status, out: `${r.stdout}\n${r.stderr}` }
+  const r = spawnSync(join(pkg, 'node_modules/.bin/vitest'), ['run', '--root', 'test/unit', 'checks-map'], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+  })
+  // the colour codes are stripped as well: CI sets its own colour variables
+  // eslint-disable-next-line no-control-regex
+  const out = `${r.stdout}\n${r.stderr}`.replace(/\u001b\[[0-9;]*m/g, '')
+  return { status: r.status, out }
 }
 
 describe('the shape test as a repo runs it', () => {
