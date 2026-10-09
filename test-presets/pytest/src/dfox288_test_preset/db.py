@@ -124,16 +124,6 @@ def _run_admin(url: str, command: str, argument: str) -> list[str]:
     return json.loads(done.stdout.strip().splitlines()[-1])
 
 
-def admin_connect(url: str) -> Any:
-    """A pg8000 connection in autocommit on `url`'s database, for statements a transaction cannot hold.
-
-    Unlike everything else here this imports the driver into the calling process: the preset's own tests use it. The
-    plugin does not, and a repo's tests that vendor their own driver should not."""
-    from .admin import connect
-
-    return connect(url)
-
-
 def create_database(url: str, name: str) -> str:
     """Creates the empty database `name` (from `template0`) on the server `url` names; returns the URL that reaches it."""
     identifier(name)

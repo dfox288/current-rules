@@ -14,8 +14,8 @@
     child process (the URL by environment, never on the command line or in an error message; a failure raises
     `dfox288_test_preset.db.DatabaseAdminError`). The child costs about 75 ms more per call than an in-process call (90 ms
     per create, 80 ms per drop, against a local Postgres): about 0.3 s per run. `open_test_schema` stays driverless.
-  - `admin_connect` still imports the driver into the calling process (the preset's own tests use it); a repo that
-    vendors a driver does not call it.
+  - `admin_connect` is no longer public (R140): no repo used it, and it imported the driver into its caller. The
+    preset's own tests take the connection from `dfox288_test_preset.admin`.
   - The rule is in `README.md` ("Parallel runs"): the preset never imports its own dependencies into the process under
     test.
 - gate script and Vitest preset: version only, no change.
@@ -38,7 +38,7 @@
     from `template0` at the worker's start, `TEST_DATABASE_URL` points at it for the worker and its subprocesses, and it
     is dropped `WITH (FORCE)` at the end; the controller drops a crashed worker's. Nothing is created without xdist or
     without the variable; a worker that cannot create its database errors its tests with the reason, never the URL. The
-    role needs `CREATEDB`. New in `dfox288_test_preset.db`: `database_url`, `admin_connect`, `create_database`,
+    role needs `CREATEDB`. New in `dfox288_test_preset.db`: `database_url`, `create_database`,
     `drop_database`, `drop_databases_starting_with`.
   - `dfox288_test_preset.net.free_port()`.
   - A test that sets its own timeout now fails in setup with the message instead of aborting the run as a usage error: a

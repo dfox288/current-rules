@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from dfox288_test_preset.db import DATABASE_ENV, admin_connect
+from dfox288_test_preset.admin import connect as admin_connect
+from dfox288_test_preset.db import DATABASE_ENV
 
 pytest_plugins = ["pytester"]
 

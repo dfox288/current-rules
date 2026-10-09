@@ -9,7 +9,8 @@ one JSON line on stdout (the names a sweep dropped); a failure is `ErrorType: me
 
 The preset never imports its own dependencies into the process under test: a repo may vendor its own pg8000 and test
 that it loads from there. `db.py` starts this module with `subprocess` and imports only its constant and `identifier`;
-the driver is imported where `connect` runs: in that child (README, "Parallel runs").
+the driver is imported where `connect` runs: in that child (README, "Parallel runs"). The preset's own tests call
+`connect` themselves, in their process; a repo does not.
 """
 
 import json
