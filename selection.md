@@ -24,6 +24,12 @@ Every kind is in `always` or has `paths`. A kind's name is the gate kind's name 
 Paths use gitignore syntax (as the fence does). The kinds' environment (image, services, tools, env, `describe`) is not
 selection: it is in `checks.kinds.yml` beside this file, which is fenced (`testing-system.md`); this file is not.
 
+`checks.kinds.yml` has three top-level keys: `kinds` (required: per kind its environment, the fields of version 1's
+`kinds` unchanged), `gateStatuses` and `floors` (optional, as in version 1). Any other key makes the file invalid. An
+invalid or missing file is treated like an invalid `kinds` block in version 1: Current has no environment for the
+repo's kinds and says why. The file has no version key; one is added the first time its shape changes, and a missing
+one then means 1.
+
 ## Reading rules
 
 For each kind, the first of rules 1 to 7 that applies decides. Nothing else adds to the selection: not the spec, not
