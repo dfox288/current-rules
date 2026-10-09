@@ -392,6 +392,15 @@ const gatesCases: Case[] = [
     },
   },
   {
+    // Vitest's static scan reads a file's own source: a test file that is only the shape test's import has no test in it
+    // ("No test suite found") unless the preset's plugin expands it. The planted file is exactly that one line.
+    name: 'the shape test as a one-line import file does not stop the medium scan',
+    plant: [{ from: 'checks-map-oneline.test.ts', to: 'test/unit/checks-map-oneline.test.ts' }],
+    command: ['pnpm', 'exec', 'vitest', 'list', '--tags-filter', 'medium', '--project', 'unit'],
+    expect: 'green',
+    message: /^(?![\s\S]*No test suite found)(?=[\s\S]*db\.test\.ts > stores a row in a schema of its own)/,
+  },
+  {
     name: 'a vitest list that fails turns the tier red with the reason, never a run of nothing',
     plant: [],
     command: [...gatesRun, '--only=small,medium'],

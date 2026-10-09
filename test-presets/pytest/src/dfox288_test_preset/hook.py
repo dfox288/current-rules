@@ -48,17 +48,30 @@ def _key(part: str) -> str:
     return part if _BARE_KEY.match(part) else json.dumps(part)
 
 
+def _value(value: object, key: str) -> str:
+    if isinstance(value, (str, bool, int, float, list)):
+        return json.dumps(value)
+    raise ValueError(f"ruff setting {key}: a {type(value).__name__} cannot be passed as an override")
+
+
 def flatten(table: dict, prefix: str = "") -> list[str]:
-    """A TOML table as `dotted.key=value` pairs, the form ruff takes as `--config` overrides."""
+    """A TOML table as `dotted.key=value` pairs, the form ruff takes as `--config` overrides.
+
+    A table whose values are all plain values (`per-file-ignores`, `isort`) goes as one inline table: ruff keeps only
+    the last of several dotted overrides for one table, so splitting it would drop every entry but one.
+    """
     pairs = []
     for name, value in table.items():
         key = prefix + _key(name)
-        if isinstance(value, dict):
+        if not isinstance(value, dict):
+            pairs.append(f"{key}={_value(value, key)}")
+        elif not value:
+            continue
+        elif any(isinstance(v, dict) for v in value.values()):
             pairs.extend(flatten(value, key + "."))
-        elif isinstance(value, (str, bool, int, float, list)):
-            pairs.append(f"{key}={json.dumps(value)}")
         else:
-            raise ValueError(f"ruff setting {key}: a {type(value).__name__} cannot be passed as an override")
+            entries = ", ".join(f"{_key(k)}={_value(v, key + '.' + k)}" for k, v in value.items())
+            pairs.append(f"{key}={{{entries}}}")
     return pairs
 
 

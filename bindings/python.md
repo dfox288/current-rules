@@ -49,8 +49,8 @@ The preset sets:
 - **The count guard:** every run states the files and tests it ran; a tier below its floor fails. It is the same under
   xdist: the controller counts, and only it writes the summary.
 - **The commit hook** (`dfox288-pre-commit`; `test-presets/README.md`, "Commit hooks"): `ruff format` and `ruff check` on the
-  staged `.py` files, offline, never a test, no type checker. A repo wires it as a one-line `.githooks/pre-commit`
-  (`exec uv run --no-sync --group test dfox288-pre-commit`).
+  staged `.py` files, offline, never a test, no type checker. A repo wires it as a two-line `.githooks/pre-commit` (a guard that exits at
+  once when no `.py` file is staged, then `exec uv run --no-sync --group test dfox288-pre-commit`).
 - **Parallel runs** (`pytest-xdist`): a run with no `-n` is `-n auto --dist=worksteal`, 4 to 6 workers; `-n0` runs in one
   process. With `TEST_DATABASE_URL` set, each worker has a database of its own and the variable points at it.
 
