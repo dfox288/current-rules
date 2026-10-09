@@ -13,7 +13,7 @@ its justified differences.
 
 ## Install
 
-Tag `test-presets-v0.4.0`. The two npm packages come from the private registry (see "Release and registry install"
+Tag `test-presets-v0.4.1`. The two npm packages come from the private registry (see "Release and registry install"
 below); the pytest package is a git dependency. Syntax checked against the docs (pnpm: "Install from a
 subdirectory of a Git repository", pnpm.io/package-sources; uv: "Dependency sources, Git, subdirectory",
 docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from this repo's branch.
@@ -21,8 +21,8 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.4.0",
-  "@dfox288/test-gates": "0.4.0"
+  "@dfox288/test-preset-vitest": "0.4.1",
+  "@dfox288/test-gates": "0.4.1"
 }
 ```
 
@@ -32,7 +32,7 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 test = ["dfox288-test-preset", "<the repo's DB driver, if it has a database>"]
 
 [tool.uv.sources]
-dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.4.0" }
+dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.4.1" }
 ```
 
 pnpm fetches a GitHub dependency as a tarball (no `git` needed); uv runs `git`. The built JavaScript (`dist/`) is
@@ -61,8 +61,8 @@ and CI gets read auth the way landfall-ui's workflows do):
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.4.0",
-  "@dfox288/test-gates": "0.4.0"
+  "@dfox288/test-preset-vitest": "0.4.1",
+  "@dfox288/test-gates": "0.4.1"
 }
 ```
 
@@ -105,6 +105,13 @@ test: a small one cannot open a socket).
 
 The package depends on `pytest-xdist` and `pg8000` (exact pins), and a repo needs no conftest of its own for any of
 this.
+
+**The preset never imports its own dependencies into the process under test; where it needs one, it runs it in a child
+process.** A repo may vendor its own `pg8000`, `scramp` and `asn1crypto` and test that they load from there; a driver the
+preset had put into `sys.modules` would be the one its tests then ran on. So `pg8000` is imported only in
+`python -I -m dfox288_test_preset.admin`, which the plugin and `dfox288_test_preset.db` start for a `CREATE DATABASE` or
+`DROP DATABASE` (the URL by environment, never on the command line or in an error). A worker's `sys.modules` has none of
+the three after the plugin's session start. A new dependency of the preset follows the same rule.
 
 - **Parallel by default.** A run that sets no `-n` runs as `-n auto --dist=worksteal`. `-n0` runs in one process, `-n 3`
   and `--dist=loadfile` are kept as given, `-p no:xdist` and `--pdb` work as xdist defines them, and

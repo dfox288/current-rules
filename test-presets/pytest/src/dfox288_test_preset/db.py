@@ -11,22 +11,29 @@ connection. In a small test the variable is empty, so everything here raises: ma
 
 Under xdist the plugin gives each worker a database of its own on that server and points TEST_DATABASE_URL at
 it (README, "Parallel runs"). It does that with the preset's own driver (pg8000), for `CREATE DATABASE` and
-`DROP DATABASE` only: the functions at the end of this file. A test reads the variable when it runs, never at
-import, because its value differs per worker.
+`DROP DATABASE` only, in a child process: the functions at the end of this file. The preset never imports its own
+dependencies into the process under test; a repo may vendor its own driver. A test reads the variable when it runs,
+never at import, because its value differs per worker.
 """
 
+import json
 import os
-import re
 import secrets
+import subprocess
+import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote, urlsplit, urlunsplit
 
+from .admin import ADMIN_URL_ENV, identifier
+
 DATABASE_ENV = "TEST_DATABASE_URL"
 # `<prefix>_<run>_<worker>`: the databases the plugin makes for the workers of one run.
 WORKER_DATABASE_PREFIX = "dfox288_worker"
+# A `DROP DATABASE` waits for a checkpoint (4 to 11 s on a slow disk, bindings/python.md); the child's connect has its own 10 s.
+CHILD_TIMEOUT = 60
 
 
 class DatabaseNotAllowed(RuntimeError):
@@ -86,69 +93,61 @@ def database_url(url: str, database: str) -> str:
     return urlunsplit(urlsplit(url)._replace(path="/" + database))
 
 
-def _identifier(name: str) -> str:
-    if not re.fullmatch(r"[A-Za-z0-9_]{1,63}", name):
-        raise ValueError(f"not a plain database name: {name!r}")
-    return f'"{name}"'
+class DatabaseAdminError(RuntimeError):
+    """A statement the child process ran failed. The message names the error, never the URL."""
+
+
+def _run_admin(url: str, command: str, argument: str) -> list[str]:
+    """Runs one statement of `admin.py` in a child process and returns the names it answers with. The preset never
+    imports its own dependencies (pg8000 and what it needs) into the process under test: a repo may vendor its own.
+    The URL goes by environment, not on the command line, and is taken out of whatever the child says."""
+    # `-I`: the child reads no PYTHON* variable and not the working directory, where a repo's module could shadow the driver
+    argv = [sys.executable, "-I", "-m", "dfox288_test_preset.admin", command, argument]
+    try:
+        done = subprocess.run(
+            argv,
+            env={**os.environ, ADMIN_URL_ENV: url},
+            capture_output=True,
+            text=True,
+            timeout=CHILD_TIMEOUT,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        raise DatabaseAdminError(f"TimeoutExpired: {command} {argument} took more than {CHILD_TIMEOUT} s") from None
+    if done.returncode != 0:
+        say = done.stderr.strip().splitlines()[-1:] or [f"exit status {done.returncode}"]
+        message = say[0]
+        for secret in (url, unquote(urlsplit(url).password or "")):
+            if secret:
+                message = message.replace(secret, "***")
+        raise DatabaseAdminError(message)
+    return json.loads(done.stdout.strip().splitlines()[-1])
 
 
 def admin_connect(url: str) -> Any:
-    """A pg8000 connection in autocommit on `url`'s database, for statements a transaction cannot hold."""
-    import pg8000.dbapi
+    """A pg8000 connection in autocommit on `url`'s database, for statements a transaction cannot hold.
 
-    try:
-        parts = urlsplit(url)
-        port = parts.port or 5432
-    except ValueError:
-        parts, port = None, None
-    if not port or parts.scheme not in ("postgres", "postgresql") or not parts.hostname or not parts.username:
-        # never the URL itself: it carries the password
-        raise ValueError(f"{DATABASE_ENV} is not a postgres://user:password@host:port/db URL")
-    conn = pg8000.dbapi.connect(
-        user=unquote(parts.username),
-        password=unquote(parts.password or ""),
-        host=parts.hostname,
-        port=port,
-        database=unquote(parts.path.lstrip("/")) or "postgres",
-        timeout=10,
-    )
-    conn.autocommit = True
-    return conn
+    Unlike everything else here this imports the driver into the calling process: the preset's own tests use it. The
+    plugin does not, and a repo's tests that vendor their own driver should not."""
+    from .admin import connect
+
+    return connect(url)
 
 
 def create_database(url: str, name: str) -> str:
     """Creates the empty database `name` (from `template0`) on the server `url` names; returns the URL that reaches it."""
-    identifier = _identifier(name)
-    admin = admin_connect(url)
-    try:
-        admin.cursor().execute(f"CREATE DATABASE {identifier} TEMPLATE template0")
-    finally:
-        admin.close()
+    identifier(name)
+    _run_admin(url, "create", name)
     return database_url(url, name)
 
 
 def drop_database(url: str, name: str) -> None:
     """Drops `name` on the server `url` names, kicking out whoever is still connected."""
-    identifier = _identifier(name)
-    admin = admin_connect(url)
-    try:
-        admin.cursor().execute(f"DROP DATABASE IF EXISTS {identifier} WITH (FORCE)")
-    finally:
-        admin.close()
+    identifier(name)
+    _run_admin(url, "drop", name)
 
 
 def drop_databases_starting_with(url: str, prefix: str) -> list[str]:
     """Drops every database whose name starts with `prefix` (a plain name part); returns their names."""
-    _identifier(prefix)
-    admin = admin_connect(url)
-    try:
-        cur = admin.cursor()
-        cur.execute(
-            "SELECT datname FROM pg_database WHERE starts_with(datname, %s) ORDER BY datname", (prefix,)
-        )
-        names = [row[0] for row in cur.fetchall()]
-        for name in names:
-            cur.execute(f"DROP DATABASE IF EXISTS {_identifier(name)} WITH (FORCE)")
-        return names
-    finally:
-        admin.close()
+    identifier(prefix)
+    return _run_admin(url, "drop-starting-with", prefix)

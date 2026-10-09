@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.4.1 (2026-10-09)
+
+- pytest preset: the worker databases are made and dropped in a child process (ruling R133, from lookout#165). 0.4.0
+  imported its own `pg8000` (and `scramp`, `asn1crypto`) into every xdist worker that had `TEST_DATABASE_URL`, so a repo
+  that vendors its own driver ran its tests on the preset's and failed its vendor test (`asn1crypto loaded from outside
+  _vendor`). Now `pg8000` stays a dependency of the package but is imported only in `python -I -m
+  dfox288_test_preset.admin`, a child process; after the plugin's session start the three are not in the worker's
+  `sys.modules`. A repo needs no change but the repin.
+  - `create_database`, `drop_database` and `drop_databases_starting_with` keep their signatures and go through the same
+    child process (the URL by environment, never on the command line or in an error message; a failure raises
+    `dfox288_test_preset.db.DatabaseAdminError`). The child costs about 75 ms more per call than an in-process call (90 ms
+    per create, 80 ms per drop, against a local Postgres): about 0.3 s per run. `open_test_schema` stays driverless.
+  - `admin_connect` still imports the driver into the calling process (the preset's own tests use it); a repo that
+    vendors a driver does not call it.
+  - The rule is in `README.md` ("Parallel runs"): the preset never imports its own dependencies into the process under
+    test.
+- gate script and Vitest preset: version only, no change.
+
 ## 0.4.0 (2026-10-09)
 
 - pytest preset: parallel runs, from what lookout#164 learned (ruling R116). A repo gets all of it by a repin and removes
