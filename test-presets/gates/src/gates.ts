@@ -225,7 +225,8 @@ export function skipLines(summaries: RunSummary[]): string[] {
       continue
     }
     for (const skip of x.skips) {
-      const line = `SKIPPED: ${skip.label} (${skip.reason})`
+      // one physical line each: a reason with a line break could forge a summary line
+      const line = `SKIPPED: ${skip.label} (${skip.reason})`.replace(/\s+/g, ' ')
       if (!seen.has(line)) lines.push(line)
       seen.add(line)
     }
@@ -511,6 +512,9 @@ export async function runGates(root: string, config: GatesConfig, options: RunOp
   // Quarantined tests have their own count; `skipped` is every other skip (a quarantined one is skipped by its tag).
   const skipped = summaries.reduce((n, x) => n + Math.max(0, x.skipped - x.quarantined), 0)
 
+  // Before the summary block, which stays last: Current keeps only the tail of a gate's output (2 KB) and reads the block
+  // from the last `=== gate summary ===` in it, so many skips must not push the marker out.
+  for (const line of skipLines(summaries)) console.log(line)
   console.log('\n=== gate summary ===')
   for (const r of results) {
     const label = r.status === 'ok' ? 'OK' : r.status === 'failed' ? 'FAILED' : 'skipped'
@@ -518,7 +522,6 @@ export async function runGates(root: string, config: GatesConfig, options: RunOp
   }
   for (const line of protectedLines(results)) console.log(`  ${line}`)
   for (const x of summaries) for (const label of x.flaky) console.log(`  FLAKY (passed on retry): ${label}`)
-  for (const line of skipLines(summaries)) console.log(`  ${line}`)
   // Nothing measured is not green.
   const ranNothing = results.every((r) => r.status === 'skipped' && !r.narrowed)
 

@@ -31,7 +31,7 @@ The preset sets:
 - **Time limits per test:** small 5 s (Vitest's default `testTimeout`), `medium` tag 15 s, `e2e` project 30 s. The
   setup-hook limit (`hookTimeout`) covers the `e2e` tests' hooks; the `e2e` build has its own limit in `runBuild` and
   `buildOnce` (10 and 15 minutes by default), because Vitest bounds no global setup.
-- **Retries:** none in `unit` and `nuxt`, refused before the run (a test or run that asks for one fails before its body);
+- **Retries:** none in `unit` and `nuxt`, refused when the test starts (a test or run that asks for one fails before its body);
   at most one in `e2e`, a pass on the retry reported as flaky.
 - **Project order:** `sequence.groupOrder` is 0 for `unit` and `nuxt`, 1 for `e2e`; a repo sets none of its own.
 - **Tags:** `medium`, `protected` and `quarantine`, defined once. `pnpm test --tags-filter=protected` lists the protected tests.

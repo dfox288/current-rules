@@ -58,7 +58,7 @@ function excludedBy(filter: readonly string[], tags: readonly string[]): boolean
 }
 
 function skipReason(test: TestCase): string {
-  const note = (test.result() as { note?: string }).note
+  const note = (test.result() as { note?: string }).note?.replace(/\s+/g, ' ').trim()
   if (note) return note
   if (test.tags.includes('quarantine')) return 'quarantined (quarantine tag)'
   if ((test as unknown as { task?: { mode?: string } }).task?.mode === 'todo') return 'todo (it.todo)'

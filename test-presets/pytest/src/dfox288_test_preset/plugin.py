@@ -212,7 +212,7 @@ def _skip_reason(report: pytest.TestReport) -> str:
     """The text a skip was given: a skipped report's `longrepr` is `(file, line, "Skipped: <reason>")`."""
     longrepr = report.longrepr
     reason = str(longrepr[2]) if isinstance(longrepr, tuple) and len(longrepr) == 3 else str(longrepr or "")
-    reason = reason.removeprefix("Skipped: ").strip()
+    reason = " ".join(reason.removeprefix("Skipped: ").split())  # one line: Current reads the gate output by line
     return reason or "no reason given"
 
 

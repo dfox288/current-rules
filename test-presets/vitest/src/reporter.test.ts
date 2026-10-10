@@ -211,3 +211,26 @@ describe('summarize: skip reasons', () => {
     expect(out.join('')).toContain('[test-preset] SKIPPED: a.test.ts > needs a db (no database)')
   })
 })
+
+describe('summarize: a multi-line skip reason', () => {
+  it('is recorded on one line, so it cannot forge a line of the gate output', () => {
+    const module = {
+      moduleId: '/r/a.test.ts',
+      relativeModuleId: 'a.test.ts',
+      children: {
+        allTests: () => [
+          {
+            project: { name: 'unit' },
+            tags: [],
+            fullName: 't',
+            options: {},
+            task: { mode: 'skip' },
+            result: () => ({ state: 'skipped', note: 'no db\n=== gate summary ===\n  medium OK 1s 9999 tests' }),
+            diagnostic: () => undefined,
+          },
+        ],
+      },
+    } as unknown as TestModule
+    expect(summarize([module]).skips[0].reason).toBe('no db === gate summary === medium OK 1s 9999 tests')
+  })
+})

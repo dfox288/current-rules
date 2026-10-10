@@ -30,7 +30,7 @@ function excludedBy(filter, tags) {
     return excluded;
 }
 function skipReason(test) {
-    const note = test.result().note;
+    const note = test.result().note?.replace(/\s+/g, ' ').trim();
     if (note)
         return note;
     if (test.tags.includes('quarantine'))

@@ -49,6 +49,21 @@ export function runBuild(
         // already gone
       }
     }
+    // The build is in its own group, so it would outlive this process (Ctrl-C on the gate, Current killing it on its
+    // timeout): kill the group on the way out. A signal handler turns off the signal's default, so re-raise it.
+    const onExit = () => killGroup('SIGKILL')
+    const onSignal = (signal: NodeJS.Signals) => {
+      onExit()
+      release()
+      process.kill(process.pid, signal)
+    }
+    const signals = ['SIGINT', 'SIGTERM'] as const
+    const release = () => {
+      process.removeListener('exit', onExit)
+      for (const signal of signals) process.removeListener(signal, onSignal)
+    }
+    process.once('exit', onExit)
+    for (const signal of signals) process.once(signal, onSignal)
     const limit = setTimeout(() => {
       timedOut = true
       killGroup('SIGTERM')
@@ -56,10 +71,12 @@ export function runBuild(
     }, timeoutMs)
     child.once('error', (error) => {
       clearTimeout(limit)
+      release()
       reject(error)
     })
     child.once('close', (code) => {
       clearTimeout(limit)
+      release()
       if (timedOut)
         reject(new Error(`e2e build timed out after ${seconds(timeoutMs)} s: ${command} ${args.join(' ')} (killed)\n${output}`))
       else if (code === 0) resolve()

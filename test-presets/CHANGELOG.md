@@ -16,7 +16,8 @@ repin; the ones that change behaviour are marked.
   and exit 1, also under `--dangerouslyIgnoreUnhandledErrors`. The run summary has `unhandledErrors`, `tiers.*.failed`,
   `filtered` and `skips`.
 - Vitest preset, small's guards: a retry in `unit` or `nuxt` (a test's `retry` option or `--retry`) is refused before the
-  body runs, not failed after the run. A relative fetch that `registerEndpoint` answers in-process is allowed in small
+  body runs, not failed after the run (it is refused when the test starts, not before the whole run: a test's own `retry`
+  is only known once its file is collected). A relative fetch that `registerEndpoint` answers in-process is allowed in small
   (while registered); an unregistered relative URL, any absolute URL (the page's origin included) and a localhost port stay
   refused. The exact-hostname rule has a lookalike test (`127.0.0.1.example.com`, `localhost.example.com`, the database
   host with a suffix: refused in medium).
@@ -25,11 +26,16 @@ repin; the ones that change behaviour are marked.
   finished. A global setup is otherwise unbounded in Vitest.
 - Skipped tests have reasons: the Vitest reporter prints and records one `SKIPPED` line per skipped test (the `ctx.skip`
   text, the quarantine tag, a todo, or "no reason given"), the pytest plugin records `skips` the same way, and the gate
-  script prints them and shows the count on the GATE line: `GATE GREEN (quarantined: q, flaky: f, skipped: k)`. **Behaviour:**
-  anything that matches the GATE line exactly needs the new field (Current reads the line from the output tail).
+  script prints them, before the `=== gate summary ===` block so that block stays last, and shows the count on the GATE
+  line: `GATE GREEN (quarantined: q, flaky: f, skipped: k)`. **Behaviour:** anything that matches the GATE line exactly needs
+  the new field. Current reads the `=== gate summary ===` block (the tier lines) from the tail of the output, not the GATE line.
 - Gate script: small and medium run in one Vitest process (`vitest run --project unit --project nuxt`) when both are asked
-  for, and the counts are split by tier from the preset's summary; the unit files are collected once (beacon: two
-  processes, about 127 s of setup each). **The static scan of 0.5.0 is gone** (`vitest list --tags-filter medium` and the
+  for, and the counts are split by tier from the preset's summary; the unit files are collected once. **The `unit` and
+  `nuxt` projects now run in one Vitest process** (0.5.x: `nuxt` in the medium tier's own process, `unit` in the small
+  tier's and again, scanned, in the medium tier's); one log, `.tmp/gates/small-medium.log`, and a crash of the process is
+  red for both tiers. Measured on a fixture of beacon's shape (592 small and 14 medium unit files, one run each, loaded
+  host): 20 s (small 15 s + medium 5 s) against 15 s with the same counts; beacon's own figure of about 127 s of setup per
+  process is from before the 0.5.0 scan and was not reproduced. **The static scan of 0.5.0 is gone** (`vitest list --tags-filter medium` and the
   `mediumFiles` cross-check): it existed to avoid collecting the unit project twice and is not needed when the run is
   shared. `--only=small` or `--only=medium` alone and the narrowed runs of R149 (`--related`, `--tests`, exit 66) are unchanged.
   A summary the gate cannot read is a red tier with the reason, and the GATE line is still printed.

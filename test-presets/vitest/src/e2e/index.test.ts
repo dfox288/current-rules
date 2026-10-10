@@ -1,6 +1,8 @@
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { buildOnce, runBuild } from './index.js'
 
@@ -45,5 +47,52 @@ describe('buildOnce', () => {
   })
   it('control: a build that finishes resolves and leaves no timer behind', async () => {
     await expect(buildOnce(async () => {}, { timeoutMs: 60_000 })()).resolves.toBeUndefined()
+  })
+})
+
+describe('runBuild: the process that runs it is stopped', () => {
+  // A node process (the gate script, a Vitest main process) that is running a build and gets the signal. The build runs in
+  // its own process group, so it would outlive its parent unless the parent kills the group on the way out.
+  const here = dirname(fileURLToPath(import.meta.url))
+  const parentOf = (dir: string, pidFile: string) => {
+    const script = join(dir, 'parent.mjs')
+    writeFileSync(
+      script,
+      `import { runBuild } from ${JSON.stringify(join(here, 'index.ts'))}\n` +
+        `runBuild('sh', ['-c', 'sleep 47 & echo $! > ' + ${JSON.stringify(pidFile)} + '; wait']).catch(() => {})\n` +
+        `setInterval(() => {}, 1000)\n`,
+    )
+    return script
+  }
+
+  it.each(['SIGTERM', 'SIGINT'] as const)('%s to the parent kills the build and what it started', { timeout: 10_000 }, async (signal) => {
+    const dir = mkdtempSync(join(tmpdir(), 'run-build-parent-'))
+    const pidFile = join(dir, 'pid')
+    const parent = spawn(process.execPath, [parentOf(dir, pidFile)], { stdio: 'ignore' })
+    await expect.poll(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8').trim() !== '', { timeout: 5000 }).toBe(true)
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    try {
+      const closed = new Promise((resolve) => parent.once('close', resolve))
+      parent.kill(signal)
+      await closed
+      await expect.poll(() => alive(pid), { timeout: 3000 }).toBe(false)
+    } finally {
+      if (alive(pid)) process.kill(pid, 'SIGKILL')
+    }
+  })
+
+  it('the parent still exits on the signal (the handler does not swallow it)', { timeout: 10_000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'run-build-parent-'))
+    const pidFile = join(dir, 'pid')
+    const parent = spawn(process.execPath, [parentOf(dir, pidFile)], { stdio: 'ignore' })
+    await expect.poll(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8').trim() !== '', { timeout: 5000 }).toBe(true)
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    try {
+      const closed = new Promise<string | null>((resolve) => parent.once('close', (_code, signal) => resolve(signal)))
+      parent.kill('SIGTERM')
+      expect(await closed).toBe('SIGTERM')
+    } finally {
+      if (alive(pid)) process.kill(pid, 'SIGKILL')
+    }
   })
 })

@@ -100,8 +100,9 @@ Tests carry tags with `it(name, { tags: ['medium'] }, fn)`. Untagged tests in `u
   `maxWorkers` and share an order; with the preset's order that cannot happen. A repo that sets `sequence.groupOrder` in
   a project's `test:` to another value gets a config error; the same value is allowed. A repo that set its own to get past
   that error (beacon) drops it.
-- **A retry is refused before the run.** A test that sets `retry` (or a run with `--retry`) in `unit` or `nuxt` fails
-  before its body runs: `small and medium tests never retry (this one asks for N)`. The reporter still counts retries
+- **A retry is refused before the test body.** A test that sets `retry` (or a run with `--retry`) in `unit` or `nuxt` fails
+  when it starts, before its body runs (a test's own `retry` is only known once its file is collected, so this is not a
+  check before the whole run): `small and medium tests never retry (this one asks for N)`. The reporter still counts retries
   after the run as its second line (and for `e2e`, where one retry is the rule).
 - **A run that executes no file is red.** A run with 0 files and an unhandled error (a config Vitest refuses, a setup file
   that throws) ends `[test-preset] FAIL: the run executed 0 files and hit N unhandled error(s); the first: ...` and exits 1,
@@ -112,7 +113,9 @@ Tests carry tags with `it(name, { tags: ['medium'] }, fn)`. Untagged tests in `u
   started (its own process group) after `timeoutMs` (default 10 minutes) and rejects with `e2e build timed out after N s`.
   `buildOnce(build, { timeoutMs })` rejects when `build` has not finished within `timeoutMs` (default 15 minutes); for a
   build function that is not `runBuild` the rejection cannot stop the work it started, so use `runBuild`. A rejection
-  fails the run before any `e2e` file.
+  fails the run before any `e2e` file. A hung setup that uses neither helper is bounded only from outside (the CI job's
+  `timeout-minutes`, Current's gate timeout). The build is stopped with its parent: a SIGINT or SIGTERM to the process
+  that runs it kills the build's process group, and so does its exit.
 - **Skipped tests have a reason.** The reporter prints one `[test-preset] SKIPPED: <file> > <test> (<reason>)` per skipped
   test and the run summary lists them (`skips`). The reason is the text of `ctx.skip('...')`; `quarantined (quarantine
   tag)`; `todo (it.todo)`; otherwise `no reason given (it.skip, skipIf, runIf or ctx.skip() without text)`. Vitest marks a
@@ -287,9 +290,10 @@ tier, and a red nothing explains (a file that did not load, an unhandled error) 
 a static scan (`vitest list`) and cross-checked it against the small run; 0.6.0 has no scan, so there is no file list to
 get wrong: a medium test whose tag is set through a variable is counted as medium because the run sees its tags.
 
-Skips are on the GATE line and in the table: `GATE GREEN (quarantined: <q>, flaky: <f>, skipped: <k>)`, where `k` counts
-the skipped tests other than the quarantined ones, and each skip is one `  SKIPPED: <file> > <test> (<reason>)` line
-after the protected counts. A preset older than 0.6.0 gives no list: one line says how many skips have no reason on record.
+Skips are on the GATE line and listed above the table: `GATE GREEN (quarantined: <q>, flaky: <f>, skipped: <k>)`, where `k` counts
+the skipped tests other than the quarantined ones, and each skip is one `SKIPPED: <file> > <test> (<reason>)` line
+(reasons on one line) printed before `=== gate summary ===`, so the summary block, which Current reads from the tail of
+the output, stays last. A preset older than 0.6.0 gives no list: one line says how many skips have no reason on record.
 A run summary that cannot be read is a red tier with the reason, and the GATE line is still printed.
 
 The gate summary also reports the protected count, one line per tier that ran, right after the gate table:

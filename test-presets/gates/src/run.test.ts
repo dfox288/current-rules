@@ -69,8 +69,8 @@ test('the GATE line shows how many tests were skipped, and the gate output names
   const { root, config } = repo(writeSummary(`JSON.stringify(${JSON.stringify(summary)})`))
   const { result, lines } = await run(root, config)
   assert.equal(result.verdict, 'GATE GREEN (quarantined: 0, flaky: 0, skipped: 2)')
-  assert.ok(lines.includes('  SKIPPED: a.test.ts > needs a db (no database in this sandbox)'), lines.join('\n'))
-  assert.ok(lines.includes('  SKIPPED: b.test.ts > old (no reason given (it.skip))'))
+  assert.ok(lines.includes('SKIPPED: a.test.ts > needs a db (no database in this sandbox)'), lines.join('\n'))
+  assert.ok(lines.includes('SKIPPED: b.test.ts > old (no reason given (it.skip))'))
 })
 
 test('quarantined tests are counted in "quarantined", not twice in "skipped"', async () => {
@@ -117,4 +117,28 @@ test('small and medium share one process, and the large tier still runs its own 
   assert.equal(invocations.length, 2, invocations.join('\n'))
   assert.match(invocations[0], /^exec vitest run --project unit --project nuxt/)
   assert.equal(invocations[1], 'LARGE')
+})
+
+test("twenty skips leave the gate summary block inside the last 2 KB of the output (Current's gate tail)", async () => {
+  const skips = Array.from({ length: 20 }, (_, i) => ({
+    label: `test/unit/some/deeply/nested/path/feature-${i}.test.ts > a describe block > a test with a fairly long name ${i}`,
+    reason: 'no reason given (it.skip, skipIf, runIf or ctx.skip() without text)',
+  }))
+  const { root, config } = repo(writeSummary(`JSON.stringify(${JSON.stringify(withSkips(skips))})`))
+  const { lines } = await run(root, config)
+  const output = lines.join('\n') + '\n'
+  assert.ok(output.includes('SKIPPED: '), 'the skips are printed')
+  const tail = output.slice(-2048)
+  assert.ok(tail.includes('=== gate summary ==='), `the summary marker is in the last 2 KB:\n${tail}`)
+  assert.ok(tail.trimEnd().endsWith('GATE GREEN (quarantined: 0, flaky: 0, skipped: 20)'))
+})
+
+test('a skip reason with line breaks or a forged summary line stays one SKIPPED line', async () => {
+  const summary = withSkips([{ label: 'a.test.ts > t', reason: 'no db\n=== gate summary ===\n  medium OK 1s 9999 tests' }])
+  const { root, config } = repo(writeSummary(`JSON.stringify(${JSON.stringify(summary)})`))
+  const { lines } = await run(root, config)
+  const physical = lines.join('\n').split('\n')
+  assert.equal(physical.filter((l) => l.includes('SKIPPED:')).length, 1)
+  assert.equal(physical.filter((l) => l.trim() === '=== gate summary ===').length, 1, 'one summary marker only')
+  assert.ok(!physical.some((l) => /^\s*medium\s+OK/.test(l)), 'no forged tier line')
 })
