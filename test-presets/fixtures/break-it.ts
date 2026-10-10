@@ -32,6 +32,27 @@ interface Case {
 const vitestFixture = join(here, 'nuxt-app')
 const run = ['pnpm', 'exec', 'vitest', 'run']
 
+const workersConfig = `import { defineTestConfig } from '@dfox288/test-preset-vitest'
+
+export default defineTestConfig({
+  unit: { include: ['test/unit/**/*.test.ts'], justification: 'break-it: workers', test: { maxWorkers: 3 } },
+  e2e: {
+    include: ['test/e2e/**/*.e2e.test.ts'],
+    globalSetup: ['test/e2e/global-setup.ts'],
+    hookTimeout: 120_000,
+    justification: 'break-it: workers',
+    test: { maxWorkers: 2 },
+  },
+})
+`
+
+const withFile = (path: string, content: string) => (f: string) => {
+  const file = join(f, path)
+  const before = existsSync(file) ? readFileSync(file, 'utf8') : undefined
+  writeFileSync(file, content)
+  return () => (before === undefined ? rmSync(file, { force: true }) : writeFileSync(file, before))
+}
+
 const vitestCases: Case[] = [
   {
     name: 'small test opens a socket',
@@ -77,6 +98,27 @@ const vitestCases: Case[] = [
     message: /Tests\s+5 passed \(5\)/,
   },
   {
+    name: 'small: a relative fetch that registerEndpoint answers in-process is allowed (fetch and $fetch), and only while registered',
+    plant: [{ from: 'register-endpoint.test.ts', to: 'test/nuxt/register-endpoint.test.ts' }],
+    command: [...run, 'test/nuxt/register-endpoint.test.ts'],
+    expect: 'green',
+    message: /Tests\s+3 passed \(3\)/,
+  },
+  {
+    name: 'small: next to registerEndpoint an unregistered relative URL, an absolute URL, a localhost port and a protocol-relative URL stay refused',
+    plant: [{ from: 'register-endpoint-refused.test.ts', to: 'test/nuxt/register-endpoint-refused.test.ts' }],
+    command: [...run, 'test/nuxt/register-endpoint-refused.test.ts'],
+    expect: 'red',
+    message: /^(?=[\s\S]*never touch the network \(fetch \/api\/unregistered\))(?=[\s\S]*never touch the network \(fetch http:\/\/localhost:\d+\/api\/hello\))(?=[\s\S]*never touch the network \(fetch http:\/\/127\.0\.0\.1:9\/api\/hello\))(?=[\s\S]*never touch the network \(fetch \/\/203\.0\.113\.1\/api\/hello\))(?=[\s\S]*Tests\s+4 failed)/,
+  },
+  {
+    name: 'medium: a hostname that only looks like loopback or the database host is refused (exact-hostname rule)',
+    plant: [{ from: 'medium-lookalike.test.ts', to: 'test/unit/medium-lookalike.test.ts' }],
+    command: [...run, 'test/unit/medium-lookalike.test.ts'],
+    expect: 'green',
+    message: /Tests\s+10 passed \(10\)/,
+  },
+  {
     name: 'small test asks for the database',
     plant: [{ from: 'small-db.test.ts', to: 'test/unit/small-db.test.ts' }],
     command: [...run, 'test/unit/small-db.test.ts'],
@@ -91,11 +133,33 @@ const vitestCases: Case[] = [
     message: /mediun/,
   },
   {
+    name: 'every skipped test is named with a reason, whatever way it was skipped',
+    plant: [{ from: 'skips.test.ts', to: 'test/unit/skips.test.ts' }],
+    command: [...run, 'test/unit/skips.test.ts'],
+    expect: 'green',
+    message: /^(?=[\s\S]*SKIPPED: test\/unit\/skips\.test\.ts > ctx skip \(no database in this sandbox\))(?=[\s\S]*SKIPPED: test\/unit\/skips\.test\.ts > plain skip \(no reason given)(?=[\s\S]*SKIPPED: test\/unit\/skips\.test\.ts > skipIf \(no reason given)(?=[\s\S]*SKIPPED: test\/unit\/skips\.test\.ts > skipped suite > inner \(no reason given)(?=[\s\S]*SKIPPED: test\/unit\/skips\.test\.ts > a todo \(todo)(?=[\s\S]*SKIPPED: test\/unit\/skips\.test\.ts > quarantined \(quarantined)(?=[\s\S]*skipped 6, quarantined 1)/,
+  },
+  {
     name: 'retry in unit cannot happen',
     plant: [{ from: 'retry-small.test.ts', to: 'test/unit/retry-small.test.ts' }],
     command: [...run, 'test/unit/retry-small.test.ts'],
     expect: 'red',
-    message: /\[test-preset\] FAIL: retry beyond the baseline's rules: .*retries itself in a small tier \(small tier, retried 1x\)/,
+    message: /^(?=[\s\S]*retries itself in a small tier[\s\S]*small and medium tests never retry \(this one asks for 2\))(?![\s\S]*BODY RAN)(?![\s\S]*retried 1x)/,
+  },
+  {
+    name: 'retry in nuxt cannot happen either',
+    plant: [{ from: 'retry-small.test.ts', to: 'test/nuxt/retry-small.test.ts' }],
+    command: [...run, 'test/nuxt/retry-small.test.ts'],
+    expect: 'red',
+    message: /^(?=[\s\S]*small and medium tests never retry \(this one asks for 2\))(?![\s\S]*BODY RAN)/,
+  },
+  {
+    // `--retry` on the command line is the config-level form of the same thing
+    name: 'retry from the command line is refused in unit',
+    plant: [{ from: 'add-twice.test.ts', to: 'test/unit/add-twice.test.ts' }],
+    command: [...run, '--retry=1', 'test/unit/add-twice.test.ts'],
+    expect: 'red',
+    message: /^(?=[\s\S]*small and medium tests never retry \(this one asks for 1\))(?![\s\S]*BODY RAN)/,
   },
   {
     name: 'e2e retry beyond one is red',
@@ -133,6 +197,32 @@ const vitestCases: Case[] = [
     message: /Test timed out in 30000ms/,
   },
   {
+    // Vitest throws "different 'maxWorkers' but same 'sequence.groupOrder'" for projects of one order (beacon, 2026-10-03):
+    // the preset gives unit and nuxt order 0 and e2e order 1.
+    name: 'projects with different maxWorkers run: the preset orders unit before e2e',
+    plant: [],
+    command: [...run, 'test/unit/add.test.ts', 'test/e2e/app.e2e.test.ts'],
+    expect: 'green',
+    message: /ran 2 files, 4 tests \(small 2, medium 0, large 2\)/,
+    prepare: withFile('vitest.config.ts', workersConfig),
+    after: (f) => (existsSync(join(f, '.tmp/e2e-build-ran')) ? undefined : 'the e2e build did not run'),
+  },
+  {
+    name: 'a run that executed 0 files and hit an unhandled error is red',
+    plant: [{ from: 'unhandled-no-files.test.ts', to: 'test/unit/unhandled-no-files.test.ts' }],
+    command: [...run, 'test/unit/unhandled-no-files.test.ts'],
+    expect: 'red',
+    message: /\[test-preset\] FAIL: the run executed 0 files and hit 1 unhandled error; the first: planted unhandled rejection/,
+  },
+  {
+    // `--dangerouslyIgnoreUnhandledErrors` makes Vitest itself exit 0 for the same run: the preset's reporter is red alone.
+    name: 'a run that executed 0 files and hit an unhandled error is red even when Vitest ignores it',
+    plant: [{ from: 'unhandled-no-files.test.ts', to: 'test/unit/unhandled-no-files.test.ts' }],
+    command: [...run, '--dangerouslyIgnoreUnhandledErrors', 'test/unit/unhandled-no-files.test.ts'],
+    expect: 'red',
+    message: /\[test-preset\] FAIL: the run executed 0 files and hit 1 unhandled error/,
+  },
+  {
     name: 'a run that selects no e2e file does not build',
     plant: [],
     command: [...run, 'test/unit/add.test.ts'],
@@ -152,13 +242,6 @@ const vitestControl: Case = {
   after: (f) => (existsSync(join(f, '.tmp/e2e-build-ran')) ? undefined : 'the e2e build did not run'),
 }
 
-
-const withFile = (path: string, content: string) => (f: string) => {
-  const file = join(f, path)
-  const before = existsSync(file) ? readFileSync(file, 'utf8') : undefined
-  writeFileSync(file, content)
-  return () => (before === undefined ? rmSync(file, { force: true }) : writeFileSync(file, before))
-}
 
 const pytestFixture = join(here, 'python-pkg')
 const pyrun = ['uv', 'run', '--group', 'test', 'pytest', '-p', 'no:cacheprovider']
@@ -314,7 +397,14 @@ const gatesCases: Case[] = [
     // --base=HEAD: the docs gate is NOT MEASURED without a base ref, and a CI checkout has no origin/main
     command: [...gatesRun, '--base=HEAD'],
     expect: 'green',
-    message: /GATE GREEN \(quarantined: 0, flaky: 0\)/,
+    message: /GATE GREEN \(quarantined: 0, flaky: 0, skipped: 0\)/,
+  },
+  {
+    name: 'skips show on the GATE line and are named in the gate output (the quarantined one is counted apart)',
+    plant: [{ from: 'skips.test.ts', to: 'test/unit/skips.test.ts' }],
+    command: [...gatesRun, '--base=HEAD'],
+    expect: 'green',
+    message: /^(?=[\s\S]*SKIPPED: test\/unit\/skips\.test\.ts > ctx skip \(no database in this sandbox\))(?=[\s\S]*SKIPPED: test\/unit\/skips\.test\.ts > quarantined \(quarantined)(?=[\s\S]*GATE GREEN \(quarantined: 1, flaky: 0, skipped: 5\))/,
   },
   {
     name: 'a tier below its floor fails the gate',
@@ -343,46 +433,88 @@ const gatesCases: Case[] = [
     message: /GATE RED: small \(exit 1\)/,
   },
   {
-    name: 'control: the medium tier selected by the static scan counts what a full collection did',
+    name: 'control: the medium tier alone counts the unit medium tests and the nuxt tests',
     plant: [],
     command: [...gatesRun, '--only=medium'],
     expect: 'green',
     message: /medium +OK +\d+s +3 tests, 2 files \(floor 3\)/,
   },
   {
-    name: 'a medium test in a new file is selected by the scan, with no file list to keep',
+    name: 'a medium test in a new file is counted by the medium tier, with no file list to keep',
     plant: [{ from: 'medium-extra.test.ts', to: 'test/unit/medium-extra.test.ts' }],
     command: [...gatesRun, '--only=medium'],
     expect: 'green',
     message: /medium +OK +\d+s +4 tests, 3 files \(floor 3\)/,
   },
   {
-    name: 'control: small and medium together, the scan selected every file the small run saw medium tests in',
+    name: 'control: small and medium together are one Vitest process, each tier counted from it',
     plant: [],
     command: [...gatesRun, '--only=small,medium'],
     expect: 'green',
-    message: /the static scan selected every file the small run saw medium tests in/,
+    message: /^(?=[\s\S]*=== small, medium \(one Vitest process\) ===)(?=[\s\S]*small +OK +\d+s +3 tests, 2 files \(floor 3\))(?=[\s\S]*medium +OK +\d+s +3 tests, 2 files \(floor 3\))(?=[\s\S]*GATE GREEN)(?![\s\S]*=== small ===)/,
+    after: (f) => (existsSync(join(f, '.tmp/gates/small-medium.summary.json')) ? undefined : 'no shared summary was written'),
   },
   {
-    name: 'a medium test whose tag the scan cannot read is red, naming its file',
-    plant: [{ from: 'medium-tags-by-variable.test.ts', to: 'test/unit/medium-tags-by-variable.test.ts' }],
+    // The unit files are collected once: the shared run's log holds one "Test Files" line, the separate runs two.
+    name: 'small and medium together collect the unit files once',
+    plant: [],
+    command: [...gatesRun, '--only=small,medium'],
+    expect: 'green',
+    message: /^(?=[\s\S]*Test Files {2}\d+ passed \(\d+\))(?![\s\S]*Test Files [\s\S]*Test Files )/,
+  },
+  {
+    name: 'together, a tier below its floor is red alone: the other tier of the run stays OK',
+    plant: [],
     command: [...gatesRun, '--only=small,medium'],
     expect: 'red',
-    message: /GATE RED: medium \(medium-tagged tests in files the static scan did not select, so they never ran: test\/unit\/medium-tags-by-variable\.test\.ts\)/,
+    message: /^(?=[\s\S]*small +FAILED +\d+s +3 small tests is below the floor of 99)(?=[\s\S]*medium +OK +\d+s +3 tests, 2 files)(?=[\s\S]*GATE RED: small \(3 small tests is below the floor of 99\))/,
+    prepare: withFile('test-floors.json', '{"small": 99, "medium": 3, "large": 2}'),
   },
   {
-    name: 'medium alone is not scanned: a medium test the scan cannot read still runs, never green-unrun',
+    name: 'together, a medium tier with its tests gone is red at the floor, small stays OK',
+    plant: [],
+    command: [...gatesRun, '--only=small,medium'],
+    expect: 'red',
+    message: /^(?=[\s\S]*small +OK)(?=[\s\S]*GATE RED: medium \(1 medium tests is below the floor of 3\))/,
+    prepare: (f) => {
+      renameSync(join(f, 'test/unit/db.test.ts'), join(f, 'test/unit/db.test.ts.off'))
+      return () => renameSync(join(f, 'test/unit/db.test.ts.off'), join(f, 'test/unit/db.test.ts'))
+    },
+  },
+  {
+    name: 'together, a failing medium test is the medium tier\'s red; small stays OK',
+    plant: [{ from: 'failing-medium.test.ts', to: 'test/unit/failing-medium.test.ts' }],
+    command: [...gatesRun, '--only=small,medium'],
+    expect: 'red',
+    message: /^(?=[\s\S]*small +OK)(?=[\s\S]*medium +FAILED +\d+s +exit 1)(?=[\s\S]*GATE RED: medium \(exit 1\))/,
+  },
+  {
+    name: 'together, a failing small test is the small tier\'s red; medium stays OK',
+    plant: [{ from: 'failing-small.test.ts', to: 'test/unit/failing-small.test.ts' }],
+    command: [...gatesRun, '--only=small,medium'],
+    expect: 'red',
+    message: /^(?=[\s\S]*small +FAILED +\d+s +exit 1)(?=[\s\S]*medium +OK)(?=[\s\S]*GATE RED: small \(exit 1\))/,
+  },
+  {
+    name: 'together, a medium test whose tag is set by a variable runs (no scan to miss it)',
+    plant: [{ from: 'medium-tags-by-variable.test.ts', to: 'test/unit/medium-tags-by-variable.test.ts' }],
+    command: [...gatesRun, '--only=small,medium'],
+    expect: 'green',
+    message: /medium +OK +\d+s +4 tests, 3 files \(floor 3\)/,
+  },
+  {
+    name: 'medium alone: a medium test whose tag is set by a variable still runs',
     plant: [{ from: 'medium-tags-by-variable.test.ts', to: 'test/unit/medium-tags-by-variable.test.ts' }],
     command: [...gatesRun, '--only=medium'],
     expect: 'green',
-    message: /^(?=[\s\S]*not scanned, the cross-check cannot run)(?=[\s\S]*medium +OK +\d+s +4 tests, 3 files)/,
+    message: /medium +OK +\d+s +4 tests, 3 files/,
   },
   {
-    name: 'a commands.small override is not scanned either: the variable-tagged medium test runs',
+    name: 'a commands.small override: the small tier runs its own command, medium runs on its own and finds the variable-tagged test',
     plant: [{ from: 'medium-tags-by-variable.test.ts', to: 'test/unit/medium-tags-by-variable.test.ts' }],
     command: [...gatesRun, '--only=small,medium', '--config=.tmp/small-override.config.json'],
     expect: 'green',
-    message: /^(?=[\s\S]*not scanned, the cross-check cannot run)(?=[\s\S]*medium +OK +\d+s +4 tests, 3 files)/,
+    message: /^(?=[\s\S]*=== medium ===)(?=[\s\S]*medium +OK +\d+s +4 tests, 3 files)(?![\s\S]*one Vitest process)/,
     prepare: (f) => {
       mkdirSync(join(f, '.tmp'), { recursive: true })
       return withFile(
@@ -401,20 +533,6 @@ const gatesCases: Case[] = [
     message: /^(?![\s\S]*No test suite found)(?=[\s\S]*db\.test\.ts > stores a row in a schema of its own)/,
   },
   {
-    name: 'a vitest list that fails turns the tier red with the reason, never a run of nothing',
-    plant: [],
-    command: [...gatesRun, '--only=small,medium'],
-    expect: 'red',
-    message: /GATE RED: medium \(vitest list failed: exit 1 from pnpm exec vitest list .*planted list failure/,
-    // only `vitest list` throws, so the small run passes and the medium scan is the one that fails
-    prepare: (f) => {
-      const file = join(f, 'vitest.config.ts')
-      const before = readFileSync(file, 'utf8')
-      writeFileSync(file, `if (process.argv.includes('list')) throw new Error('planted list failure')\n${before}`)
-      return () => writeFileSync(file, before)
-    },
-  },
-  {
     name: 'a tier whose run writes no summary is NOT MEASURED, not green',
     plant: [],
     command: [...gatesRun, '--only=small', '--config=.tmp/no-preset.config.json'],
@@ -423,6 +541,38 @@ const gatesCases: Case[] = [
     prepare: (f) => {
       mkdirSync(join(f, '.tmp'), { recursive: true })
       return withFile('.tmp/no-preset.config.json', '{"stack":"vitest","commands":{"small":["node","-e","process.exit(0)"]}}')(f)
+    },
+  },
+  {
+    // Vitest exits 0 (`--dangerouslyIgnoreUnhandledErrors`) and the narrowed tier selected "no test": before 0.6.0 a skip, exit 66.
+    // The preset's reporter now exits 1 itself; the gate script's own check (judgeTier) is covered by the unit tests.
+    name: 'a narrowed tier whose run executed 0 files and hit an unhandled error is red, not a skip',
+    plant: [{ from: 'unhandled-no-files.test.ts', to: 'test/unit/unhandled-no-files.test.ts' }],
+    command: [...gatesRun, '--only=small', '--config=.tmp/ignore-unhandled.config.json', '--small-tests=test/unit/unhandled-no-files.test.ts'],
+    expect: 'red',
+    exit: 1,
+    message: /GATE RED: small \(exit 1\)/,
+    prepare: (f) => {
+      mkdirSync(join(f, '.tmp'), { recursive: true })
+      return withFile(
+        '.tmp/ignore-unhandled.config.json',
+        '{"stack":"vitest","commands":{"small":["pnpm","exec","vitest","run","--project","unit","--dangerouslyIgnoreUnhandledErrors"]}}',
+      )(f)
+    },
+  },
+  {
+    name: 'a corrupt run summary is red with its reason and the GATE line is printed',
+    plant: [],
+    command: [...gatesRun, '--only=small', '--config=.tmp/corrupt-summary.config.json'],
+    expect: 'red',
+    exit: 1,
+    message: /not valid JSON[\s\S]*GATE RED: small \(the run summary .* is not valid JSON/,
+    prepare: (f) => {
+      mkdirSync(join(f, '.tmp'), { recursive: true })
+      return withFile(
+        '.tmp/corrupt-summary.config.json',
+        JSON.stringify({ stack: 'vitest', commands: { small: ['node', '-e', 'require("fs").writeFileSync(process.env.TEST_PRESET_SUMMARY, "{\\"files\\": 1, ")'] } }),
+      )(f)
     },
   },
   {
@@ -547,7 +697,7 @@ cases['gates-pytest'] = {
       plant: [],
       command: [...gatesPyRun, '--base=HEAD'], // as the Nuxt control: no origin/main in a CI checkout
       expect: 'green',
-      message: /GATE GREEN \(quarantined: 0, flaky: 0\)/,
+      message: /GATE GREEN \(quarantined: 0, flaky: 0, skipped: 0\)/,
     },
     {
       name: 'protected count: direct, class and module marks are counted, an unmarked test is not',

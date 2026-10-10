@@ -27,6 +27,15 @@ export declare const PROJECTS: {
     readonly nuxt: "nuxt";
     readonly e2e: "e2e";
 };
+/**
+ * `sequence.groupOrder` of each project: unit and nuxt before e2e. Vitest throws "different 'maxWorkers' but same
+ * 'sequence.groupOrder'" (an unhandled error, 0 files run) for projects of one order whose worker counts differ.
+ */
+export declare const GROUP_ORDER: {
+    readonly unit: 0;
+    readonly nuxt: 0;
+    readonly e2e: 1;
+};
 /** Where the reporter writes the run summary when the gate script asks for it. */
 export declare const SUMMARY_ENV = "TEST_PRESET_SUMMARY";
 export declare const DATABASE_ENV = "TEST_DATABASE_URL";

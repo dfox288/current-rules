@@ -1,8 +1,9 @@
 // Small's touch rules, enforced for every test of `unit` and `nuxt` (`bindings/nuxt-ts.md`):
 // - an outgoing network connection fails the test (a `medium` test may reach loopback and the test
-//   database's host);
+//   database's host); a relative URL that `registerEndpoint` answers in-process is not a connection and passes;
 // - a write outside the OS temp dir fails the test (a `medium` test may write files);
-// - `TEST_DATABASE_URL` is empty, so the DB helper throws (a `medium` test gets the real value).
+// - `TEST_DATABASE_URL` is empty, so the DB helper throws (a `medium` test gets the real value);
+// - a test that asks for a retry (its own option or `--retry`) fails before its body runs.
 // Sleep and server boot are not guarded: the reviewer checks them.
 // A guard is only active inside a test (beforeEach to afterEach), never while modules load.
 import dgram from 'node:dgram';
@@ -14,6 +15,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach } from 'vitest';
 import { DATABASE_ENV } from '../constants.js';
+import { retryRefusal } from '../retry.js';
+import { answeredInProcess } from './endpoint.js';
 let mode = 'off';
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 function databaseHost() {
@@ -44,6 +47,9 @@ const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input, init) => {
     if (mode !== 'off') {
         const raw = input instanceof Request ? input.url : String(input);
+        // A relative URL that `registerEndpoint` registered is answered in-process by the nuxt environment's fetch: no socket.
+        if (answeredInProcess(raw, globalThis.__registry))
+            return realFetch(input, init);
         let host;
         try {
             // a relative URL is judged against the page's own origin; without one it stays refused
@@ -186,6 +192,11 @@ beforeEach(({ task }) => {
     realDatabaseUrl = process.env[DATABASE_ENV];
     if (mode === 'small')
         process.env[DATABASE_ENV] = '';
+    // Refused before the body runs, not failed after: a retry would turn a red test green (the reporter keeps its own
+    // count as the second line of defence). `task.retry` is the test's option, else the run's (`--retry`).
+    const refusal = retryRefusal(task.retry);
+    if (refusal)
+        throw new Error(refusal);
 });
 // Hooks of `afterEach` run in the order they were registered or reversed, by `sequence.hooks`; the
 // guard is lifted in the last of them either way, because a test's own cleanup may write.
