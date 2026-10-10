@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   test-presets:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER_ANY || 'ubuntu-latest' }}
     timeout-minutes: 30
     services:
       postgres:
