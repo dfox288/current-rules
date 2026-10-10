@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { LIMITS, PROJECTS, TAGS } from './constants.js';
+import { GROUP_ORDER, LIMITS, PROJECTS, TAGS } from './constants.js';
 import { testPresetPlugin } from './plugin.js';
 // `process.env.TZ` is read by the workers the run spawns; set it before any of them exist. The
 // projects' `env` repeats it for pools that build a fresh environment.
@@ -21,7 +21,10 @@ function checkDifferences(project, input) {
 }
 function common(name, input) {
     checkDifferences(name, input);
-    const { env, setupFiles, ...rest } = (input.test ?? {});
+    const { env, setupFiles, sequence, ...rest } = (input.test ?? {});
+    const groupOrder = GROUP_ORDER[name];
+    if (sequence && 'groupOrder' in sequence && sequence.groupOrder !== groupOrder)
+        throw new Error(`test preset: project "${name}" sets "sequence.groupOrder", which the preset fixes (unit and nuxt 0, e2e 1); drop it`);
     return {
         base: {
             name,
@@ -30,6 +33,7 @@ function common(name, input) {
             exclude: input.exclude,
             env: { ...env, TZ: 'UTC' },
             ...rest,
+            sequence: { ...sequence, groupOrder },
         },
         setupFiles: setupFiles ?? [],
     };
@@ -71,6 +75,8 @@ export async function defineTestConfig(options) {
     }
     if (options.e2e) {
         const { base, setupFiles } = common(PROJECTS.e2e, options.e2e);
+        // the input's globalSetup first, then one a repo passed through `test:` (kept, not overwritten)
+        const globalSetup = [...(options.e2e.globalSetup ?? []), ...(base.globalSetup ?? [])];
         projects.push({
             ...vitePart(options.e2e),
             test: {
@@ -78,7 +84,7 @@ export async function defineTestConfig(options) {
                 retry: 1,
                 testTimeout: LIMITS.large,
                 hookTimeout: options.e2e.hookTimeout,
-                globalSetup: options.e2e.globalSetup,
+                ...(globalSetup.length > 0 ? { globalSetup } : {}),
                 setupFiles: [setupFile('common'), ...setupFiles],
             },
         });

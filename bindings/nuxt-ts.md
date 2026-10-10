@@ -15,7 +15,7 @@ reviewer checks them.)*
   because it boots Nuxt in-process; a test in `unit` that touches a database, files or an in-process server carries the
   Vitest tag `medium`; everything in `e2e` is large. There is no medium folder or project.
 - **[contract item]** One script, `"test": "vitest"`, as Nuxt documents. No `test:*` scripts except the opt-in
-  `test:coverage`. The shared gate script selects tiers with `--project` and `--tags-filter`.
+  `test:coverage`. The shared gate script runs `small` and `medium` in one Vitest process (`--project unit --project nuxt`) and splits the counts by tier.
 - **[rule]** A focused run always names files: `pnpm test <file>`, never `pnpm test -- <file>` (the script swallows
   the `--`). Only the gate script runs a whole tier. Read the `Test Files` count: `--exclude` is ignored under
   `projects`, and `--project <name>` with a name Vitest never assigned selects nothing.
@@ -29,15 +29,23 @@ apply. Install syntax and the options are in `test-presets/README.md`.
 The preset sets:
 
 - **Time limits per test:** small 5 s (Vitest's default `testTimeout`), `medium` tag 15 s, `e2e` project 30 s. The
-  setup-hook limit (`hookTimeout`) covers the `e2e` build.
-- **Retries:** none in `unit` and `nuxt`; at most one in `e2e`, a pass on the retry reported as flaky.
+  setup-hook limit (`hookTimeout`) covers the `e2e` tests' hooks; the `e2e` build has its own limit in `runBuild` and
+  `buildOnce` (10 and 15 minutes by default), because Vitest bounds no global setup.
+- **Retries:** none in `unit` and `nuxt`, refused when the test starts (a test or run that asks for one fails before its body);
+  at most one in `e2e`, a pass on the retry reported as flaky.
+- **Project order:** `sequence.groupOrder` is 0 for `unit` and `nuxt`, 1 for `e2e`; a repo sets none of its own.
 - **Tags:** `medium`, `protected` and `quarantine`, defined once. `pnpm test --tags-filter=protected` lists the protected tests.
   A `quarantine` test is skipped and counted in the run line and the gate's summary.
 - **`TZ=UTC`.**
-- **Small's guards:** an outgoing network connection fails the test; a write outside the test's temp dir fails it;
+- **Small's guards:** an outgoing network connection fails the test (a relative URL that `registerEndpoint` of
+  `@nuxt/test-utils` answers in-process is not one; an unregistered relative URL, any absolute URL and a localhost port
+  are refused); a `medium` test reaches loopback and the test database's host by exact hostname (`127.0.0.1.example.com`
+  is refused); a write outside the test's temp dir fails it;
   `TEST_DATABASE_URL` is empty for untagged tests, so the DB helper throws. Sleep and server boot are not guarded;
   the reviewer checks them.
-- **The count guard:** every run states the files and tests it ran; a tier below its floor fails.
+- **The count guard:** every run states the files and tests it ran; a tier below its floor fails; a run that executes no
+  file and hit an unhandled error fails everywhere. Every skipped test is named with a reason in the gate output, and the
+  GATE line shows the skip count.
 - **The `e2e` build:** the app is built once per run and reused by every `e2e` file; a run that selects no `e2e` file
   does not start it.
 - **The commit hook** (`hooks/pre-commit`, `dfox288-pre-commit`; `test-presets/README.md`, "Commit hooks"): Prettier and

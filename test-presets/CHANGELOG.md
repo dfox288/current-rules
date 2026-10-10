@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+## 0.6.0 (2026-10-10)
+
+The open items of horizon-surveyor#83 (R198, R199, R203). All three packages move to 0.6.0. A repo gets each change by a
+repin; the ones that change behaviour are marked.
+
+- Vitest preset, `defineTestConfig`: a `globalSetup` passed through `test:` is kept (it was overwritten and dropped
+  silently); the `e2e` option's own `globalSetup` runs first.
+- Vitest preset: `sequence.groupOrder` is set by the preset (`unit` and `nuxt` 0, `e2e` 1), so two projects that differ in
+  `maxWorkers` no longer make Vitest run 0 files. A different value in a project's `test:` is a config error. **Behaviour:**
+  beacon drops its own `groupOrder`.
+- Vitest preset, reporter: a run that executes 0 files and hit an unhandled error is red in every path: `[test-preset] FAIL`
+  and exit 1, also under `--dangerouslyIgnoreUnhandledErrors`. The run summary has `unhandledErrors`, `tiers.*.failed`,
+  `filtered` and `skips`.
+- Vitest preset, small's guards: a retry in `unit` or `nuxt` (a test's `retry` option or `--retry`) is refused before the
+  body runs, not failed after the run (it is refused when the test starts, not before the whole run: a test's own `retry`
+  is only known once its file is collected). A relative fetch that `registerEndpoint` answers in-process is allowed in small
+  (while registered); an unregistered relative URL, any absolute URL (the page's origin included) and a localhost port stay
+  refused. The exact-hostname rule has a lookalike test (`127.0.0.1.example.com`, `localhost.example.com`, the database
+  host with a suffix: refused in medium).
+- Vitest preset, `/e2e`: the build is time-bounded. `runBuild` takes `timeoutMs` (default 10 minutes) and kills the
+  command's whole process group; `buildOnce` takes `timeoutMs` (default 15 minutes) and rejects when the build has not
+  finished. A global setup is otherwise unbounded in Vitest.
+- Skipped tests have reasons: the Vitest reporter prints and records one `SKIPPED` line per skipped test (the `ctx.skip`
+  text, the quarantine tag, a todo, or "no reason given"), the pytest plugin records `skips` the same way, and the gate
+  script prints them, before the `=== gate summary ===` block so that block stays last, and shows the count on the GATE
+  line: `GATE GREEN (quarantined: q, flaky: f, skipped: k)`. **Behaviour:** anything that matches the GATE line exactly needs
+  the new field. Current reads the `=== gate summary ===` block (the tier lines) from the tail of the output, not the GATE line.
+- Gate script: small and medium run in one Vitest process (`vitest run --project unit --project nuxt`) when both are asked
+  for, and the counts are split by tier from the preset's summary; the unit files are collected once. **The `unit` and
+  `nuxt` projects now run in one Vitest process** (0.5.x: `nuxt` in the medium tier's own process, `unit` in the small
+  tier's and again, scanned, in the medium tier's); one log, `.tmp/gates/small-medium.log`, and a crash of the process is
+  red for both tiers. Measured on a fixture of beacon's shape (592 small and 14 medium unit files, one run each, loaded
+  host): 20 s (small 15 s + medium 5 s) against 15 s with the same counts; beacon's own figure of about 127 s of setup per
+  process is from before the 0.5.0 scan and was not reproduced. **The static scan of 0.5.0 is gone** (`vitest list --tags-filter medium` and the
+  `mediumFiles` cross-check): it existed to avoid collecting the unit project twice and is not needed when the run is
+  shared. `--only=small` or `--only=medium` alone and the narrowed runs of R149 (`--related`, `--tests`, exit 66) are unchanged.
+  A summary the gate cannot read is a red tier with the reason, and the GATE line is still printed.
+- current-rules' own workflows run on `${{ vars.RUNNER_ANY || 'ubuntu-latest' }}` (#285, part 2).
+
 ## 0.5.2 (2026-10-09)
 
 - Vitest preset, the commit hook: it makes `.nuxt/` itself (horizon-surveyor R161). A clone whose install ran without scripts

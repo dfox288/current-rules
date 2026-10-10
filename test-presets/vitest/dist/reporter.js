@@ -14,21 +14,49 @@ export function tierOf(project, tags) {
         return 'medium';
     return tags.includes('medium') ? 'medium' : 'small';
 }
-export function summarize(modules) {
+/**
+ * Whether `--tags-filter` left a test out. Vitest marks such a test skipped like any other, so the reporter evaluates the
+ * two expressions the gate script passes (`medium`, `!medium`) itself. Any other expression is not read: `undefined`.
+ */
+function excludedBy(filter, tags) {
+    let excluded = false;
+    for (const expression of filter) {
+        const match = /^(!?)([A-Za-z0-9_-]+)$/.exec(expression.trim());
+        if (!match)
+            return undefined;
+        if (tags.includes(match[2]) === (match[1] === '!'))
+            excluded = true;
+    }
+    return excluded;
+}
+function skipReason(test) {
+    const note = test.result().note?.replace(/\s+/g, ' ').trim();
+    if (note)
+        return note;
+    if (test.tags.includes('quarantine'))
+        return 'quarantined (quarantine tag)';
+    if (test.task?.mode === 'todo')
+        return 'todo (it.todo)';
+    return 'no reason given (it.skip, skipIf, runIf or ctx.skip() without text)';
+}
+export function summarize(modules, unhandledErrors = [], tagsFilter = []) {
     const summary = {
         files: 0,
         tests: 0,
         skipped: 0,
         quarantined: 0,
+        filtered: 0,
+        skips: [],
         failed: 0,
+        unhandledErrors: unhandledErrors.length,
         flaky: [],
         retriedBeyondRules: [],
         limitRaised: [],
         mediumFiles: [],
         tiers: {
-            small: { files: 0, tests: 0, protected: 0 },
-            medium: { files: 0, tests: 0, protected: 0 },
-            large: { files: 0, tests: 0, protected: 0 },
+            small: { files: 0, tests: 0, protected: 0, failed: 0 },
+            medium: { files: 0, tests: 0, protected: 0, failed: 0 },
+            large: { files: 0, tests: 0, protected: 0, failed: 0 },
         },
     };
     const filesPerTier = {
@@ -47,9 +75,14 @@ export function summarize(modules) {
             const state = test.result().state;
             const label = `${module.relativeModuleId} > ${test.fullName}`;
             if (state === 'skipped') {
+                if (excludedBy(tagsFilter, test.tags)) {
+                    summary.filtered++;
+                    continue;
+                }
                 summary.skipped++;
                 if (test.tags.includes('quarantine'))
                     summary.quarantined++;
+                summary.skips.push({ label, reason: skipReason(test) });
                 continue;
             }
             if (state === 'pending')
@@ -61,8 +94,10 @@ export function summarize(modules) {
                 summary.tiers[tier].protected++;
             files.add(module.moduleId);
             filesPerTier[tier].add(module.moduleId);
-            if (state === 'failed')
+            if (state === 'failed') {
                 summary.failed++;
+                summary.tiers[tier].failed++;
+            }
             const retries = test.diagnostic()?.retryCount ?? 0;
             const maxRetries = tier === 'large' ? 1 : 0;
             if (retries > maxRetries)
@@ -82,12 +117,26 @@ export function summarize(modules) {
     return summary;
 }
 export const testPresetReporter = {
-    onTestRunEnd(modules) {
-        const s = summarize(modules);
+    tagsFilter: [],
+    onInit(vitest) {
+        this.tagsFilter = vitest.config?.tagsFilter ?? [];
+    },
+    onTestRunEnd(modules, unhandledErrors = []) {
+        const s = summarize(modules, unhandledErrors, this.tagsFilter);
         const t = s.tiers;
         process.stdout.write(`[test-preset] ran ${s.files} files, ${s.tests} tests ` +
             `(small ${t.small.tests}, medium ${t.medium.tests}, large ${t.large.tests}); ` +
             `skipped ${s.skipped}, quarantined ${s.quarantined}, flaky ${s.flaky.length}\n`);
+        // A run that executed no file and hit an error outside the tests (a project setup Vitest refuses, say) measured
+        // nothing. Vitest exits 1 for it, but not under `--dangerouslyIgnoreUnhandledErrors`, and a gate that reads
+        // "0 tests" as a narrowed skip would pass it: red here, in every path.
+        if (s.files === 0 && s.unhandledErrors > 0) {
+            const message = String(unhandledErrors[0]?.message ?? unhandledErrors[0]);
+            process.stdout.write(`[test-preset] FAIL: the run executed 0 files and hit ${s.unhandledErrors} unhandled error${s.unhandledErrors === 1 ? '' : 's'}; the first: ${message.split('\n')[0]}\n`);
+            process.exitCode = 1;
+        }
+        for (const skip of s.skips)
+            process.stdout.write(`[test-preset] SKIPPED: ${skip.label} (${skip.reason})\n`);
         for (const label of s.flaky)
             process.stdout.write(`[test-preset] FLAKY (passed on retry, not a clean pass): ${label}\n`);
         for (const label of s.retriedBeyondRules) {

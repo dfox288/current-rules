@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import type { ViteUserConfig } from 'vitest/config'
-import { LIMITS, PROJECTS, TAGS } from './constants.js'
+import { GROUP_ORDER, LIMITS, PROJECTS, TAGS } from './constants.js'
 import { testPresetPlugin } from './plugin.js'
 
 // `process.env.TZ` is read by the workers the run spawns; set it before any of them exist. The
@@ -62,10 +62,16 @@ function checkDifferences(project: string, input: ProjectInput | E2eInput) {
 
 function common(name: string, input: ProjectInput) {
   checkDifferences(name, input)
-  const { env, setupFiles, ...rest } = (input.test ?? {}) as Record<string, unknown> & {
+  const { env, setupFiles, sequence, ...rest } = (input.test ?? {}) as Record<string, unknown> & {
     env?: Record<string, string>
     setupFiles?: string[]
+    sequence?: Record<string, unknown>
   }
+  const groupOrder = GROUP_ORDER[name as keyof typeof GROUP_ORDER]
+  if (sequence && 'groupOrder' in sequence && sequence.groupOrder !== groupOrder)
+    throw new Error(
+      `test preset: project "${name}" sets "sequence.groupOrder", which the preset fixes (unit and nuxt 0, e2e 1); drop it`,
+    )
   return {
     base: {
       name,
@@ -74,6 +80,7 @@ function common(name: string, input: ProjectInput) {
       exclude: input.exclude,
       env: { ...env, TZ: 'UTC' },
       ...rest,
+      sequence: { ...sequence, groupOrder },
     },
     setupFiles: setupFiles ?? [],
   }
@@ -122,6 +129,8 @@ export async function defineTestConfig(options: PresetOptions): Promise<ViteUser
 
   if (options.e2e) {
     const { base, setupFiles } = common(PROJECTS.e2e, options.e2e)
+    // the input's globalSetup first, then one a repo passed through `test:` (kept, not overwritten)
+    const globalSetup = [...(options.e2e.globalSetup ?? []), ...((base as { globalSetup?: string[] }).globalSetup ?? [])]
     projects.push({
       ...vitePart(options.e2e),
       test: {
@@ -129,7 +138,7 @@ export async function defineTestConfig(options: PresetOptions): Promise<ViteUser
         retry: 1,
         testTimeout: LIMITS.large,
         hookTimeout: options.e2e.hookTimeout,
-        globalSetup: options.e2e.globalSetup,
+        ...(globalSetup.length > 0 ? { globalSetup } : {}),
         setupFiles: [setupFile('common'), ...setupFiles],
       },
     })

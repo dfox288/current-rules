@@ -13,7 +13,7 @@ its justified differences.
 
 ## Install
 
-Tag `test-presets-v0.5.2`. The two npm packages come from the private registry (see "Release and registry install"
+Tag `test-presets-v0.6.0`. The two npm packages come from the private registry (see "Release and registry install"
 below); the pytest package is a git dependency. Syntax checked against the docs (pnpm: "Install from a
 subdirectory of a Git repository", pnpm.io/package-sources; uv: "Dependency sources, Git, subdirectory",
 docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from this repo's branch.
@@ -21,8 +21,8 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.5.2",
-  "@dfox288/test-gates": "0.5.2"
+  "@dfox288/test-preset-vitest": "0.6.0",
+  "@dfox288/test-gates": "0.6.0"
 }
 ```
 
@@ -32,7 +32,7 @@ docs.astral.sh/uv/concepts/projects/dependencies) and by installing each from th
 test = ["dfox288-test-preset", "<the repo's DB driver, if it has a database>"]
 
 [tool.uv.sources]
-dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.5.2" }
+dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdirectory = "test-presets/pytest", tag = "test-presets-v0.6.0" }
 ```
 
 pnpm fetches a GitHub dependency as a tarball (no `git` needed); uv runs `git`. The built JavaScript (`dist/`) is
@@ -61,8 +61,8 @@ and CI gets read auth the way landfall-ui's workflows do):
 ```jsonc
 // package.json
 "devDependencies": {
-  "@dfox288/test-preset-vitest": "0.5.2",
-  "@dfox288/test-gates": "0.5.2"
+  "@dfox288/test-preset-vitest": "0.6.0",
+  "@dfox288/test-gates": "0.6.0"
 }
 ```
 
@@ -93,6 +93,35 @@ A repo may add `plugins`, `resolve`, `define`, and `test` options with a `justif
 `startBuiltApp`, `freePort`), `/e2e/browser` (`launch`, `openPage`, `hitsInside`, `settle`; needs `playwright`).
 Tests carry tags with `it(name, { tags: ['medium'] }, fn)`. Untagged tests in `unit` count as small, untagged tests in `nuxt` count as medium (they boot Nuxt), `e2e` is large.
 
+- **`globalSetup` in `test:`.** A `globalSetup` a project passes through `test:` is kept; the `e2e` project's own
+  `globalSetup` option runs first, then the one from `test:` (0.5.2 and before dropped it without a word).
+- **Project order.** The preset sets `sequence.groupOrder` for its projects: `unit` and `nuxt` 0, `e2e` 1. Vitest refuses to
+  run (`different 'maxWorkers' but same 'sequence.groupOrder'`, 0 files, an unhandled error) when two projects differ in
+  `maxWorkers` and share an order; with the preset's order that cannot happen. A repo that sets `sequence.groupOrder` in
+  a project's `test:` to another value gets a config error; the same value is allowed. A repo that set its own to get past
+  that error (beacon) drops it.
+- **A retry is refused before the test body.** A test that sets `retry` (or a run with `--retry`) in `unit` or `nuxt` fails
+  when it starts, before its body runs (a test's own `retry` is only known once its file is collected, so this is not a
+  check before the whole run): `small and medium tests never retry (this one asks for N)`. The reporter still counts retries
+  after the run as its second line (and for `e2e`, where one retry is the rule).
+- **A run that executes no file is red.** A run with 0 files and an unhandled error (a config Vitest refuses, a setup file
+  that throws) ends `[test-preset] FAIL: the run executed 0 files and hit N unhandled error(s); the first: ...` and exits 1,
+  also under `--dangerouslyIgnoreUnhandledErrors`. The run summary carries `unhandledErrors`, and the gate's count guard
+  is red for it even on a narrowed run (where 0 tests is otherwise a skip).
+- **The shared e2e build is time-bounded.** Vitest puts no limit on a `globalSetup` (`hookTimeout` is for tests and their
+  hooks), so the limit is in the helpers. `runBuild(command, args, { timeoutMs })` kills the command and everything it
+  started (its own process group) after `timeoutMs` (default 10 minutes) and rejects with `e2e build timed out after N s`.
+  `buildOnce(build, { timeoutMs })` rejects when `build` has not finished within `timeoutMs` (default 15 minutes); for a
+  build function that is not `runBuild` the rejection cannot stop the work it started, so use `runBuild`. A rejection
+  fails the run before any `e2e` file. A hung setup that uses neither helper is bounded only from outside (the CI job's
+  `timeout-minutes`, Current's gate timeout). The build is stopped with its parent: a SIGINT or SIGTERM to the process
+  that runs it kills the build's process group, and so does its exit.
+- **Skipped tests have a reason.** The reporter prints one `[test-preset] SKIPPED: <file> > <test> (<reason>)` per skipped
+  test and the run summary lists them (`skips`). The reason is the text of `ctx.skip('...')`; `quarantined (quarantine
+  tag)`; `todo (it.todo)`; otherwise `no reason given (it.skip, skipIf, runIf or ctx.skip() without text)`. Vitest marks a
+  test that `--tags-filter` left out as skipped too; the reporter does not list those (it reads the two filters the
+  gate passes, `medium` and `!medium`; with a filter it cannot read, every skip is listed).
+
 ### The shape test of `checks.map.yml`
 
 A repo's whole test file for the map (version 2, `selection.md`) is one line, in a project that runs `small`:
@@ -102,11 +131,10 @@ A repo's whole test file for the map (version 2, `selection.md`) is one line, in
 import '@dfox288/test-preset-vitest/checks-map-test'
 ```
 
-Vitest's static scan (`vitest list`, used by the gate's medium tier) reads a test file's own source, and a test behind an
-import is not in it: a file of nothing but an import would stop the scan with `No test suite found`. So `defineTestConfig`'s
-plugin expands a file that is exactly that import (comments around it are fine) into an `it` the scan sees, with the same
-body; a file that has anything else in it is left as written (it registers the test by importing the module). The test
-is one `it`, untagged, so small.
+`defineTestConfig`'s plugin expands a file that is exactly that import (comments around it are fine) into an `it` with the
+same body (0.5.1 needed this for the gate's static scan, which 0.6.0 no longer runs; the expansion stays, it changes
+nothing for a run); a file that has anything else in it is left as written (it registers the test by importing the
+module). The test is one `it`, untagged, so small.
 
 It reads `checks.map.yml` and `checks.kinds.yml` in the git top level (the project may run from a folder below it) and
 the list of tracked files, and is red, naming the kind and the glob, when "Checks of the file" in `selection.md` is
@@ -251,16 +279,22 @@ without `exec`.
 zero tests and one whose run wrote no summary (the preset did not run) are red; `--raise-floors` raises the floors
 after a green run and never lowers them. The last line is `GATE GREEN (...)` or `GATE RED: <gate (reason)>, ...`.
 
-On the Vitest stack the medium run of the tag-selected projects (`unit`, not `nuxt`) takes its files from a static scan,
-`vitest list --tags-filter medium --project <p> --json` (Vitest 5; about 2 s, sets up no file), and runs only those, with
-`--tags-filter` still on the run. Without it Vitest sets up every file of the project to run the few medium ones. Counts,
-floors and the summary are unchanged. A scan that fails (cannot start, non-zero exit, no JSON) is red with the reason
-(`vitest list failed: ...`), never a silent full run or a run of nothing. The small tier is not scanned. A medium test whose tag the static scan cannot read (the tag set through a variable, say) would not be
-selected and would never run, so the gate cross-checks: the small run collects every file, the preset's summary lists the
-files where it saw a medium-tagged test (`mediumFiles`, skipped ones included), and the medium gate is red, naming each
-file, when the scan did not select one of them. The check needs the small run's list, so the scan is used only when it exists: with `--only=medium` alone, a `commands.small`
-override or a preset whose summary has no `mediumFiles`, the medium run is not scanned (it collects every file, as before)
-and the gate prints one line saying so.
+On the Vitest stack, `small` and `medium` asked for together (the default) run in **one Vitest process**: `vitest run
+--project unit --project nuxt`, no tag filter, and the preset's reporter splits the counts by tier (a test of the `nuxt`
+project and a test tagged `medium` are medium, the rest small). The files of `unit` are collected and set up once instead
+of once per tier. Both tiers are judged from that run's summary: each against its own floor, a failed test against its own
+tier, and a red nothing explains (a file that did not load, an unhandled error) against both. The gate table lists
+`small` and `medium` as before and the log is `.tmp/gates/small-medium.log`. `--only=small` or `--only=medium` alone, a
+`commands.small` or `commands.medium` override, or tiers narrowed to different files run per tier as before, with
+`--tags-filter` (`!medium` and `medium`) on the `unit` project. 0.5.0 to 0.5.2 selected the medium files of `unit` with
+a static scan (`vitest list`) and cross-checked it against the small run; 0.6.0 has no scan, so there is no file list to
+get wrong: a medium test whose tag is set through a variable is counted as medium because the run sees its tags.
+
+Skips are on the GATE line and listed above the table: `GATE GREEN (quarantined: <q>, flaky: <f>, skipped: <k>)`, where `k` counts
+the skipped tests other than the quarantined ones, and each skip is one `SKIPPED: <file> > <test> (<reason>)` line
+(reasons on one line) printed before `=== gate summary ===`, so the summary block, which Current reads from the tail of
+the output, stays last. A preset older than 0.6.0 gives no list: one line says how many skips have no reason on record.
+A run summary that cannot be read is a red tier with the reason, and the GATE line is still printed.
 
 The gate summary also reports the protected count, one line per tier that ran, right after the gate table:
 
@@ -287,14 +321,14 @@ test-gates --only=small,medium --related=web/app/utils/filter.ts --tests=web/tes
 ```
 
 - `--related=<file>` (repeatable) is a changed file; the Vitest tiers `small` and `medium` run `vitest related --run
-  <files>` with their usual `--project` and `--tags-filter`, so the tests that import the file run (and a test file given
+  <files>` with their usual `--project` (and `--tags-filter` when run apart), so the tests that import the file run (and a test file given
   runs itself). `large` never takes it: e2e has no narrowing step, it runs whole or not at all.
 - `--tests=<file>` (repeatable) is a test file, for every tier of the run; `--small-tests=`, `--medium-tests=` and
   `--large-tests=` give one tier's files only. A tier given only test files runs `vitest run <files>`
   (pytest: `pytest -m <marker> <files>`). A tier given nothing runs whole.
 - Paths are taken relative to the working directory (Current runs the gate from the kind's `dir`), must be inside the
   repo, and a test path must exist (a usage error, exit 2, otherwise).
-- A narrowed tier is neither scanned nor floor-checked: the floors and the cross-check describe a whole tier. A narrowed
+- A narrowed tier is not floor-checked: the floors describe a whole tier. A narrowed
   run that selects no test is a skip, not a red: `gates: medium: narrowed: no medium test is related to the selected files
   (changed files: ...)`, and the gate can still be green (selection.md: "a selection of zero tests skips the kind"): the
   table shows the tier as skipped with that reason. A mixed run (one tier skipped, another green) is green and exits 0. A

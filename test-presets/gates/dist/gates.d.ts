@@ -30,17 +30,27 @@ export interface RunSummary {
     tests: number;
     skipped: number;
     quarantined: number;
+    /** Tests the run's tag filter left out, not counted in `skipped`; absent before preset 0.6.0. */
+    filtered?: number;
+    /** One entry per skipped test with its reason; absent before preset 0.6.0. */
+    skips?: {
+        label: string;
+        reason: string;
+    }[];
     failed: number;
+    /** Errors outside any test (a project setup Vitest refuses). Absent in a summary written by a preset older than 0.6.0. */
+    unhandledErrors?: number;
     flaky: string[];
     retriedBeyondRules: string[];
-    /** `protected` is absent in a summary written by a preset older than 0.1.3. */
+    /** Tests that set their own timeout above their tier's limit; absent before preset 0.6.0. */
+    limitRaised?: string[];
+    /** `protected` is absent in a summary written by a preset older than 0.1.3, `failed` in one older than 0.6.0. */
     tiers: Record<Tier, {
         files: number;
         tests: number;
         protected?: number;
+        failed?: number;
     }>;
-    /** Files (absolute) with a medium-tagged test the run saw, whatever its state. Absent before preset 0.2. */
-    mediumFiles?: string[];
 }
 export type Floors = Partial<Record<Tier, number>>;
 /**
@@ -71,54 +81,53 @@ export declare function repoPaths(base: string, paths: string[], options?: {
     mustExist?: boolean;
     within?: string;
 }): string[];
-/** One run of a tier. `list`, when set, is the static scan whose files the run is restricted to. */
+/** One run of a tier. */
 export interface TierRun {
     argv: string[];
-    list?: string[];
 }
 /**
- * The runs that make up a tier. Stack-specific, one place. A Vitest tag filter cannot say "everything in
- * the nuxt project, plus the medium-tagged tests of the others", so the nuxt project (every test there boots Nuxt, so
- * the preset counts it medium) runs on its own in the medium tier, and the small tier leaves it out. Run and count
- * then agree. A `commands` override and the pytest stack are one run.
+ * The runs that make up a tier when it runs alone (`--only=small`, `--only=medium`). Stack-specific, one place. A Vitest
+ * tag filter cannot say "everything in the nuxt project, plus the medium-tagged tests of the others", so the nuxt
+ * project (every test there boots Nuxt, so the preset counts it medium) runs on its own in the medium tier, and the
+ * small tier leaves it out. Run and count then agree. A `commands` override and the pytest stack are one run.
  *
- * Vitest filters tags only after a file is collected, so `--tags-filter=medium` alone sets up every file of the
- * project (hundreds in a big app) to run a few. The medium run of the tag-selected projects therefore carries a
- * `list`: `vitest list --tags-filter medium --json` parses the files statically (Vitest 5), and the run is
- * restricted to those files. The run keeps its `--tags-filter`, so a file that also holds untagged tests still
- * counts only the medium ones. The small run is not scanned: it would save the setup of the few medium files only,
- * and a file whose tests are all generated (`it.each`) is invisible to the scan and would silently drop out of it.
+ * When small and medium both run in one invocation, a Vitest repo does not use these: `combinedRun` runs them in one
+ * Vitest process, so the files of the project are collected and set up once.
  *
- * A narrowed tier (`narrowing`, see `Narrowing`) runs the files it was given and is not scanned: the file set is
- * already small, and the cross-check needs a whole small run.
+ * A narrowed tier (`narrowing`, see `Narrowing`) runs the files it was given: the file set is already small.
  */
 export declare function tierRuns(config: GatesConfig, tier: Tier, narrowing?: Narrowing): TierRun[];
 /** The argv of each run of a tier, without the file selection. */
 export declare function tierCommands(config: GatesConfig, tier: Tier): string[][];
 /**
- * The cross-check of the static scan: the files the small run saw medium-tagged tests in (it collects every file) that
- * the scan did not select, so their medium tests never ran. Sorted. `undefined` when the small run's list is not known
- * (small did not run in this invocation, a `commands.small` override, or a preset that does not write it).
+ * Small and medium in one Vitest process. The preset's reporter tells the tiers apart (the `nuxt` project and the
+ * medium-tagged tests of the others are medium, the rest small), so one run with no tag filter gives both counts, and
+ * the files of the unit project are collected and set up once instead of once per tier. `undefined` when the tiers
+ * cannot share a run: not Vitest, a repo's own tier command, no project, or tiers narrowed to different files.
  */
-export declare function missedByScan(seen: string[] | undefined, selected: string[]): string[] | undefined;
+export declare function combinedRun(config: GatesConfig, narrowing: Narrowing | undefined): string[] | undefined;
 /**
- * The medium files the small run saw, or `undefined` when the scan cannot be cross-checked: small did not run in this
- * invocation, a `commands.small` override (its run may cover only some files), or a summary from a preset that does
- * not write `mediumFiles`. Then the medium run is not scanned: it collects every file, as it did before the scan.
+ * The exit code a tier answers for out of a run it shares with another tier. A test that failed names its tier; a limit
+ * or retry breach names its tier in its label; a red exit nothing explains (a file that did not load, an unhandled
+ * error) is every tier's. A summary without per-tier failures (a preset older than 0.6.0) cannot attribute: red for all.
  */
-export declare function crossCheckList(config: GatesConfig, small: RunSummary | undefined): string[] | undefined;
-export type Selection = {
-    files: string[];
+export declare function tierExit(summary: RunSummary | undefined, tier: Tier, exit: number): number;
+/**
+ * One line per skipped test with its reason. A summary without the list (a preset older than 0.6.0) gets one line that
+ * says how many skips have no reason on record.
+ */
+export declare function skipLines(summaries: RunSummary[]): string[];
+/** Adds the summaries of the runs of one tier into one. */
+export declare function mergeSummaries(parts: RunSummary[]): RunSummary;
+/**
+ * Reads a run summary the preset wrote. Never throws: a file that is not JSON, or not the shape of a summary, is an
+ * `error` with the reason, so the tier is red and the GATE verdict line is still printed.
+ */
+export declare function readSummary(path: string): {
+    summary: RunSummary;
 } | {
     error: string;
 };
-/**
- * Runs a `vitest list --json` command and returns the files it names, absolute, once each, sorted. Never
- * guesses: a command that cannot start, exits non-zero or prints something else is an `error` with the reason.
- */
-export declare function selectFiles(list: string[], cwd: string): Selection;
-/** Adds the summaries of the runs of one tier into one. */
-export declare function mergeSummaries(parts: RunSummary[]): RunSummary;
 export interface GateResult {
     name: GateName;
     status: 'ok' | 'failed' | 'skipped';

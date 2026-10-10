@@ -21,6 +21,11 @@ export const TAGS = [
 ];
 /** Project names are Nuxt's folder names (`test/unit`, `test/nuxt`, `test/e2e`). */
 export const PROJECTS = { unit: 'unit', nuxt: 'nuxt', e2e: 'e2e' };
+/**
+ * `sequence.groupOrder` of each project: unit and nuxt before e2e. Vitest throws "different 'maxWorkers' but same
+ * 'sequence.groupOrder'" (an unhandled error, 0 files run) for projects of one order whose worker counts differ.
+ */
+export const GROUP_ORDER = { unit: 0, nuxt: 0, e2e: 1 };
 /** Where the reporter writes the run summary when the gate script asks for it. */
 export const SUMMARY_ENV = 'TEST_PRESET_SUMMARY';
 export const DATABASE_ENV = 'TEST_DATABASE_URL';
