@@ -2,7 +2,7 @@
 //   lint, format, typecheck, small, medium, large, build
 // lint and format run first and stop the run when red; the others run on and the summary names every red
 // gate. A gate is never piped: each command is spawned directly and its exit code is the gate's result.
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync, createWriteStream } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 export const GATE_NAMES = ['lint', 'format', 'typecheck', 'docs', 'small', 'medium', 'large', 'build'];
@@ -47,20 +47,15 @@ export function repoPaths(base, paths, options = {}) {
 }
 const isFile = (path) => existsSync(path) && statSync(path).isFile();
 /**
- * The runs that make up a tier. Stack-specific, one place. A Vitest tag filter cannot say "everything in
- * the nuxt project, plus the medium-tagged tests of the others", so the nuxt project (every test there boots Nuxt, so
- * the preset counts it medium) runs on its own in the medium tier, and the small tier leaves it out. Run and count
- * then agree. A `commands` override and the pytest stack are one run.
+ * The runs that make up a tier when it runs alone (`--only=small`, `--only=medium`). Stack-specific, one place. A Vitest
+ * tag filter cannot say "everything in the nuxt project, plus the medium-tagged tests of the others", so the nuxt
+ * project (every test there boots Nuxt, so the preset counts it medium) runs on its own in the medium tier, and the
+ * small tier leaves it out. Run and count then agree. A `commands` override and the pytest stack are one run.
  *
- * Vitest filters tags only after a file is collected, so `--tags-filter=medium` alone sets up every file of the
- * project (hundreds in a big app) to run a few. The medium run of the tag-selected projects therefore carries a
- * `list`: `vitest list --tags-filter medium --json` parses the files statically (Vitest 5), and the run is
- * restricted to those files. The run keeps its `--tags-filter`, so a file that also holds untagged tests still
- * counts only the medium ones. The small run is not scanned: it would save the setup of the few medium files only,
- * and a file whose tests are all generated (`it.each`) is invisible to the scan and would silently drop out of it.
+ * When small and medium both run in one invocation, a Vitest repo does not use these: `combinedRun` runs them in one
+ * Vitest process, so the files of the project are collected and set up once.
  *
- * A narrowed tier (`narrowing`, see `Narrowing`) runs the files it was given and is not scanned: the file set is
- * already small, and the cross-check needs a whole small run.
+ * A narrowed tier (`narrowing`, see `Narrowing`) runs the files it was given: the file set is already small.
  */
 export function tierRuns(config, tier, narrowing) {
     const narrowed = narrowingFor(narrowing, tier);
@@ -95,9 +90,6 @@ export function tierRuns(config, tier, narrowing) {
                     ...(narrowed ? [] : nuxt.length > 0 ? ['--passWithNoTests'] : []),
                     ...tail,
                 ],
-                ...(tier === 'medium' && !narrowed
-                    ? { list: ['pnpm', 'exec', 'vitest', 'list', '--tags-filter', 'medium', ...projects(others), '--json'] }
-                    : {}),
             });
         if (tier === 'medium' && nuxt.length > 0)
             runs.push({ argv: [...base, ...projects(nuxt), ...tail] });
@@ -113,82 +105,84 @@ export function tierCommands(config, tier) {
     return tierRuns(config, tier).map((r) => r.argv);
 }
 /**
- * The cross-check of the static scan: the files the small run saw medium-tagged tests in (it collects every file) that
- * the scan did not select, so their medium tests never ran. Sorted. `undefined` when the small run's list is not known
- * (small did not run in this invocation, a `commands.small` override, or a preset that does not write it).
+ * Small and medium in one Vitest process. The preset's reporter tells the tiers apart (the `nuxt` project and the
+ * medium-tagged tests of the others are medium, the rest small), so one run with no tag filter gives both counts, and
+ * the files of the unit project are collected and set up once instead of once per tier. `undefined` when the tiers
+ * cannot share a run: not Vitest, a repo's own tier command, no project, or tiers narrowed to different files.
  */
-export function missedByScan(seen, selected) {
-    if (!seen)
+export function combinedRun(config, narrowing) {
+    if (config.stack !== 'vitest' || config.commands?.small || config.commands?.medium)
         return undefined;
-    const chosen = new Set(selected);
-    return seen.filter((f) => !chosen.has(f)).sort();
+    const projects = config.projects?.smallMedium ?? ['unit', 'nuxt'];
+    if (projects.length === 0)
+        return undefined;
+    const small = narrowingFor(narrowing, 'small');
+    const medium = narrowingFor(narrowing, 'medium');
+    const same = (a = [], b = []) => a.length === b.length && a.every((f) => b.includes(f));
+    if (small || medium) {
+        if (!small || !medium || !same(small.related, medium.related) || !same(small.tests, medium.tests))
+            return undefined;
+    }
+    const related = (small?.related.length ?? 0) > 0;
+    const files = small ? [...new Set([...small.related, ...small.tests])] : [];
+    return [
+        'pnpm', 'exec', 'vitest', ...(related ? ['related', '--run'] : ['run']),
+        ...projects.flatMap((p) => ['--project', p]),
+        ...(small ? ['--passWithNoTests', ...files] : []),
+    ];
 }
 /**
- * The medium files the small run saw, or `undefined` when the scan cannot be cross-checked: small did not run in this
- * invocation, a `commands.small` override (its run may cover only some files), or a summary from a preset that does
- * not write `mediumFiles`. Then the medium run is not scanned: it collects every file, as it did before the scan.
+ * The exit code a tier answers for out of a run it shares with another tier. A test that failed names its tier; a limit
+ * or retry breach names its tier in its label; a red exit nothing explains (a file that did not load, an unhandled
+ * error) is every tier's. A summary without per-tier failures (a preset older than 0.6.0) cannot attribute: red for all.
  */
-export function crossCheckList(config, small) {
-    if (config.commands?.small)
-        return undefined;
-    return small?.mediumFiles;
+export function tierExit(summary, tier, exit) {
+    if (exit === 0 || !summary)
+        return exit;
+    const failed = ['small', 'medium'].map((t) => summary.tiers[t].failed); // the tiers a shared run covers
+    if (failed.some((n) => n === undefined))
+        return exit;
+    if (failed.every((n) => n === 0))
+        return exit;
+    if ((summary.tiers[tier].failed ?? 0) > 0)
+        return exit;
+    const named = (labels = []) => labels.some((l) => l.includes(`(${tier} tier`));
+    return named(summary.retriedBeyondRules) || named(summary.limitRaised) ? exit : 0;
 }
 /**
- * Runs a `vitest list --json` command and returns the files it names, absolute, once each, sorted. Never
- * guesses: a command that cannot start, exits non-zero or prints something else is an `error` with the reason.
+ * One line per skipped test with its reason. A summary without the list (a preset older than 0.6.0) gets one line that
+ * says how many skips have no reason on record.
  */
-export function selectFiles(list, cwd) {
-    const r = spawnSync(list[0], list.slice(1), { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
-    const shown = list.join(' ');
-    if (r.error)
-        return { error: `vitest list failed: could not start ${shown}: ${r.error.message}` };
-    if (r.status !== 0) {
-        const reason = (r.stderr || r.stdout || '').split('\n').filter((l) => l.trim()).slice(0, 5).join(' | ');
-        return { error: `vitest list failed: exit ${r.status ?? r.signal} from ${shown}: ${reason}` };
+export function skipLines(summaries) {
+    const lines = [];
+    const seen = new Set();
+    for (const x of summaries) {
+        if (!x.skips) {
+            if (x.skipped > 0)
+                lines.push(`${x.skipped} skipped, no reasons on record (the preset that ran is older than 0.6.0)`);
+            continue;
+        }
+        for (const skip of x.skips) {
+            const line = `SKIPPED: ${skip.label} (${skip.reason})`;
+            if (!seen.has(line))
+                lines.push(line);
+            seen.add(line);
+        }
     }
-    let parsed;
-    try {
-        parsed = JSON.parse(r.stdout);
-    }
-    catch {
-        return { error: `vitest list failed: no JSON on stdout of ${shown}: ${r.stdout.trim().slice(0, 200)}` };
-    }
-    if (!Array.isArray(parsed))
-        return { error: `vitest list failed: the JSON of ${shown} is not a list` };
-    const files = new Set();
-    for (const entry of parsed) {
-        const file = entry?.file;
-        if (typeof file !== 'string')
-            return { error: `vitest list failed: an entry of ${shown} has no file` };
-        files.add(isAbsolute(file) ? file : resolve(cwd, file));
-    }
-    return { files: [...files].sort() };
+    return lines;
 }
-const emptySummary = () => ({
-    files: 0,
-    tests: 0,
-    skipped: 0,
-    quarantined: 0,
-    failed: 0,
-    flaky: [],
-    retriedBeyondRules: [],
-    mediumFiles: [],
-    tiers: {
-        small: { files: 0, tests: 0, protected: 0 },
-        medium: { files: 0, tests: 0, protected: 0 },
-        large: { files: 0, tests: 0, protected: 0 },
-    },
-});
 /** Adds the summaries of the runs of one tier into one. */
 export function mergeSummaries(parts) {
     const sum = (f) => parts.reduce((n, s) => n + f(s), 0);
     const tiers = {};
     for (const tier of TIERS) {
         const protectedKnown = parts.every((s) => s.tiers[tier].protected !== undefined);
+        const failedKnown = parts.every((s) => s.tiers[tier].failed !== undefined);
         tiers[tier] = {
             files: sum((s) => s.tiers[tier].files),
             tests: sum((s) => s.tiers[tier].tests),
             ...(protectedKnown ? { protected: sum((s) => s.tiers[tier].protected ?? 0) } : {}),
+            ...(failedKnown ? { failed: sum((s) => s.tiers[tier].failed ?? 0) } : {}),
         };
     }
     return {
@@ -196,14 +190,32 @@ export function mergeSummaries(parts) {
         tests: sum((s) => s.tests),
         skipped: sum((s) => s.skipped),
         quarantined: sum((s) => s.quarantined),
+        filtered: sum((s) => s.filtered ?? 0),
+        ...(parts.every((s) => s.skips) ? { skips: parts.flatMap((s) => s.skips ?? []) } : {}),
         failed: sum((s) => s.failed),
+        unhandledErrors: sum((s) => s.unhandledErrors ?? 0),
         flaky: parts.flatMap((s) => s.flaky),
         retriedBeyondRules: parts.flatMap((s) => s.retriedBeyondRules),
+        ...(parts.every((s) => s.limitRaised) ? { limitRaised: parts.flatMap((s) => s.limitRaised ?? []) } : {}),
         tiers,
-        ...(parts.every((s) => s.mediumFiles)
-            ? { mediumFiles: [...new Set(parts.flatMap((s) => s.mediumFiles ?? []))].sort() }
-            : {}),
     };
+}
+/**
+ * Reads a run summary the preset wrote. Never throws: a file that is not JSON, or not the shape of a summary, is an
+ * `error` with the reason, so the tier is red and the GATE verdict line is still printed.
+ */
+export function readSummary(path) {
+    let parsed;
+    try {
+        parsed = JSON.parse(readFileSync(path, 'utf8'));
+    }
+    catch (error) {
+        return { error: `the run summary ${path} is not valid JSON (${error.message}): the count guard is NOT MEASURED` };
+    }
+    const tiers = parsed?.tiers;
+    if (!tiers || !TIERS.every((t) => typeof tiers[t]?.tests === 'number'))
+        return { error: `the run summary ${path} has no tier counts: the count guard is NOT MEASURED` };
+    return { summary: parsed };
 }
 /**
  * Judges a finished tier run against the count guard. Returns a failure text, or undefined if it holds. A narrowed
@@ -216,6 +228,12 @@ export function judgeTier(tier, exitCode, summary, floors, narrowed = false) {
     if (!summary)
         return {
             failure: 'no run summary written: the preset did not run, so the count guard is NOT MEASURED',
+            detail: '',
+        };
+    // Nothing was measured: the run never got to its files. Red even when the runner exited 0 and a narrowed run would skip.
+    if (summary.files === 0 && (summary.unhandledErrors ?? 0) > 0)
+        return {
+            failure: `the run executed 0 files and hit ${summary.unhandledErrors} unhandled error${summary.unhandledErrors === 1 ? '' : 's'} (see the ${tier} log)`,
             detail: '',
         };
     const t = summary.tiers[tier];
@@ -284,10 +302,49 @@ export async function runGates(root, config, options = {}) {
             tierRuns(config, tier, narrowing);
     const results = [];
     let stop = false;
-    /** The medium files the small run saw, and the files the medium scan selected: the scan's cross-check. */
-    let mediumSeen;
-    const scanned = [];
-    let scannedAny = false;
+    /** Runs one command with its own log and summary; a summary that cannot be read is an `error`, never a crash. */
+    const execute = async (argv, file) => {
+        const summaryPath = join(root, '.tmp', 'gates', `${file}.summary.json`);
+        rmSync(summaryPath, { force: true });
+        const code = await runCommand(argv, root, join(root, '.tmp', 'gates', `${file}.log`), {
+            ...process.env,
+            TEST_PRESET_SUMMARY: summaryPath,
+        });
+        let summary;
+        let error;
+        if (existsSync(summaryPath)) {
+            const read = readSummary(summaryPath);
+            if ('error' in read) {
+                console.log(`gates: ${read.error}`);
+                error = read.error;
+            }
+            else
+                summary = read.summary;
+        }
+        return { code, summary, error };
+    };
+    /** Judges a tier against the count guard and records the gate. */
+    const finishTier = (tier, code, summary, error, seconds) => {
+        const narrowedTier = narrowingFor(narrowing, tier);
+        const judged = error
+            ? { failure: error, detail: '' }
+            : judgeTier(tier, code, summary, floors, narrowedTier !== undefined);
+        if (judged.skip && narrowedTier) {
+            const named = narrowedTier.related.map((f) => relative(root, f)).join(', ');
+            console.log(`gates: ${tier}: ${judged.skip}${named ? ` (changed files: ${named})` : ''}`);
+        }
+        results.push({
+            name: tier,
+            status: judged.failure ? 'failed' : judged.skip ? 'skipped' : 'ok',
+            seconds,
+            detail: judged.failure ?? judged.skip ?? judged.detail,
+            summary,
+            ...(narrowedTier ? { narrowed: true } : {}),
+        });
+    };
+    // Small and medium asked for together on a Vitest repo: one process, the counts split by tier from its summary.
+    const both = tiers.includes('small') && tiers.includes('medium') && (!options.only || (options.only.includes('small') && options.only.includes('medium')));
+    const combined = both ? combinedRun(config, narrowing) : undefined;
     for (const name of GATE_NAMES) {
         if (options.only && !options.only.includes(name))
             continue;
@@ -304,77 +361,35 @@ export async function runGates(root, config, options = {}) {
                 results.push({ name, status: 'skipped', seconds: 0, detail: 'this repo has no such tier' });
                 continue;
             }
+            if (combined && tier === 'medium')
+                continue; // judged with small, from the same run
+            if (combined && tier === 'small') {
+                console.log('\n=== small, medium (one Vitest process) ===');
+                const ran = await execute(combined, 'small-medium');
+                const secs = seconds();
+                for (const t of ['small', 'medium'])
+                    finishTier(t, tierExit(ran.summary, t, ran.code), ran.summary, ran.error, secs);
+                continue;
+            }
             console.log(`\n=== ${name} ===`);
             const commands = tierRuns(config, tier, narrowing);
             const narrowedTier = narrowingFor(narrowing, tier);
             let code = commands.length === 0 ? 1 : 0;
-            let selectionError;
+            let summaryError;
             const parts = [];
             for (const [i, run] of commands.entries()) {
-                let argv = run.argv;
-                if (run.list && mediumSeen === undefined) {
-                    console.log(`gates: ${name}: not scanned, the cross-check cannot run (no small run with a medium file list in this invocation): vitest collects every file`);
-                }
-                else if (run.list) {
-                    const selection = selectFiles(run.list, root);
-                    if ('error' in selection) {
-                        console.log(`gates: ${selection.error}`);
-                        selectionError ??= selection.error;
-                        continue;
-                    }
-                    console.log(`gates: ${name}: vitest list selected ${selection.files.length} files`);
-                    scanned.push(...selection.files);
-                    scannedAny = true;
-                    // Nothing selected is nothing to run: a run with no file argument would collect everything.
-                    if (selection.files.length === 0) {
-                        parts.push(emptySummary());
-                        continue;
-                    }
-                    argv = [...argv, ...selection.files];
-                }
-                const suffix = commands.length > 1 ? `.${i + 1}` : '';
-                const summaryPath = join(root, '.tmp', 'gates', `${name}${suffix}.summary.json`);
-                rmSync(summaryPath, { force: true });
-                const c = await runCommand(argv, root, join(root, '.tmp', 'gates', `${name}${suffix}.log`), {
-                    ...process.env,
-                    TEST_PRESET_SUMMARY: summaryPath,
-                });
+                const ran = await execute(run.argv, `${name}${commands.length > 1 ? `.${i + 1}` : ''}`);
                 // pytest exits 5 when it collected nothing: in a narrowed run that is "no test selected", judged below
-                const exit = narrowedTier && config.stack === 'pytest' && !config.commands?.[tier] && c === 5 ? 0 : c;
+                const exit = narrowedTier && config.stack === 'pytest' && !config.commands?.[tier] && ran.code === 5 ? 0 : ran.code;
                 if (exit !== 0 && code === 0)
                     code = exit;
-                if (existsSync(summaryPath))
-                    parts.push(JSON.parse(readFileSync(summaryPath, 'utf8')));
+                summaryError ??= ran.error;
+                if (ran.summary)
+                    parts.push(ran.summary);
             }
             // a run that wrote no summary leaves the tier unmeasured
             const summary = parts.length === commands.length && parts.length > 0 ? mergeSummaries(parts) : undefined;
-            if (tier === 'small')
-                mediumSeen = crossCheckList(config, summary);
-            let judged = selectionError
-                ? { failure: selectionError, detail: '' }
-                : judgeTier(tier, code, summary, floors, narrowedTier !== undefined);
-            if (tier === 'medium' && scannedAny && !selectionError) {
-                const missed = missedByScan(mediumSeen, scanned);
-                if (missed && missed.length > 0) {
-                    const named = missed.map((f) => relative(root, f)).join(', ');
-                    const failure = `medium-tagged tests in files the static scan did not select, so they never ran: ${named}`;
-                    judged = { failure: judged.failure ? `${judged.failure}; ${failure}` : failure, detail: judged.detail };
-                }
-                else
-                    console.log('gates: medium: the static scan selected every file the small run saw medium tests in');
-            }
-            if (judged.skip && narrowedTier) {
-                const named = narrowedTier.related.map((f) => relative(root, f)).join(', ');
-                console.log(`gates: ${name}: ${judged.skip}${named ? ` (changed files: ${named})` : ''}`);
-            }
-            results.push({
-                name,
-                status: judged.failure ? 'failed' : judged.skip ? 'skipped' : 'ok',
-                seconds: seconds(),
-                detail: judged.failure ?? judged.skip ?? judged.detail,
-                summary,
-                ...(narrowedTier ? { narrowed: true } : {}),
-            });
+            finishTier(tier, code, summary, summaryError, seconds());
             continue;
         }
         if (name === 'docs') {
@@ -399,7 +414,11 @@ export async function runGates(root, config, options = {}) {
     }
     const red = results.filter((r) => r.status === 'failed');
     const quarantined = Math.max(0, ...results.map((r) => r.summary?.quarantined ?? 0));
-    const flaky = results.reduce((n, r) => n + (r.summary?.flaky.length ?? 0), 0);
+    // tiers that shared a run share its summary: count each summary once
+    const summaries = [...new Set(results.map((r) => r.summary).filter((x) => x !== undefined))];
+    const flaky = summaries.reduce((n, x) => n + x.flaky.length, 0);
+    // Quarantined tests have their own count; `skipped` is every other skip (a quarantined one is skipped by its tag).
+    const skipped = summaries.reduce((n, x) => n + Math.max(0, x.skipped - x.quarantined), 0);
     console.log('\n=== gate summary ===');
     for (const r of results) {
         const label = r.status === 'ok' ? 'OK' : r.status === 'failed' ? 'FAILED' : 'skipped';
@@ -407,9 +426,11 @@ export async function runGates(root, config, options = {}) {
     }
     for (const line of protectedLines(results))
         console.log(`  ${line}`);
-    for (const r of results)
-        for (const label of r.summary?.flaky ?? [])
+    for (const x of summaries)
+        for (const label of x.flaky)
             console.log(`  FLAKY (passed on retry): ${label}`);
+    for (const line of skipLines(summaries))
+        console.log(`  ${line}`);
     // Nothing measured is not green.
     const ranNothing = results.every((r) => r.status === 'skipped' && !r.narrowed);
     if (options.raiseFloors && red.length === 0 && !ranNothing)
@@ -423,7 +444,7 @@ export async function runGates(root, config, options = {}) {
         : red.length === 0
             ? noTestRan
                 ? 'GATE SKIPPED: narrowed run, no tier selected a test'
-                : `GATE GREEN (quarantined: ${quarantined}, flaky: ${flaky})`
+                : `GATE GREEN (quarantined: ${quarantined}, flaky: ${flaky}, skipped: ${skipped})`
             : `GATE RED: ${red.map((r) => (r.detail ? `${r.name} (${r.detail})` : r.name)).join(', ')}`;
     console.log(verdict);
     return { results, red: red.length > 0 || ranNothing, noTestRan, verdict };

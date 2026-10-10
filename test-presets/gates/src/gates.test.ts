@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { mkdirSync } from 'node:fs'
-import { judgeTier, protectedLines, raiseFloors, mergeSummaries, tierCommands, tierRuns, selectFiles, missedByScan, crossCheckList, narrowingFor, repoPaths, UsageError, type GateResult, type RunSummary } from './gates.ts'
+import { combinedRun, judgeTier, protectedLines, raiseFloors, mergeSummaries, tierCommands, tierExit, tierRuns, narrowingFor, repoPaths, UsageError, type GateResult, type RunSummary } from './gates.ts'
 
 const summary = (small: number, medium = 0, large = 0): RunSummary => ({
   files: 1,
@@ -117,99 +117,71 @@ test('a medium tier made of two runs adds up in one summary', () => {
   assert.equal(merged.tests, 5)
 })
 
-// Tier selection by static scan: the medium run of the tag-selected projects gets its files from `vitest list`.
-const fake = (stdout: string, code = 0, stderr = '') => [
-  process.execPath,
-  '-e',
-  `process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(stderr)}); process.exit(${code})`,
-]
-const listing = (root: string, files: string[]) =>
-  JSON.stringify(files.flatMap((f, i) => [{ name: `t${i}a`, file: join(root, f) }, { name: `t${i}b`, file: join(root, f) }]))
+// Small and medium in one Vitest process (the units are collected once; the counts are split by the preset's tiers).
+const SMALL_MEDIUM = ['pnpm', 'exec', 'vitest', 'run', '--project', 'unit', '--project', 'nuxt']
 
-test('only the medium run of the tag-selected projects is selected by a scan; small is not', () => {
-  const medium = tierRuns({ stack: 'vitest', projects: { smallMedium: ['unit', 'nuxt'] } }, 'medium')
-  assert.equal(medium.length, 2)
-  assert.deepEqual(medium[0].list, ['pnpm', 'exec', 'vitest', 'list', '--tags-filter', 'medium', '--project', 'unit', '--json'])
-  assert.equal(medium[1].list, undefined, 'the nuxt project runs whole')
-  assert.ok(tierRuns({ stack: 'vitest' }, 'small').every((r) => r.list === undefined))
-  assert.ok(tierRuns({ stack: 'vitest' }, 'large').every((r) => r.list === undefined))
-  assert.equal(tierRuns({ stack: 'pytest' }, 'medium')[0].list, undefined)
-  assert.equal(tierRuns({ stack: 'vitest', commands: { medium: ['x'] } }, 'medium')[0].list, undefined)
+test('combined: small and medium of a Vitest repo are one `vitest run` over unit and nuxt, with no tag filter', () => {
+  assert.deepEqual(combinedRun({ stack: 'vitest' }, undefined), SMALL_MEDIUM)
+  assert.deepEqual(combinedRun({ stack: 'vitest', projects: { smallMedium: ['web'] } }, undefined), ['pnpm', 'exec', 'vitest', 'run', '--project', 'web'])
 })
 
-test('control: the scan gives exactly the files of the full collection, once each, sorted', () => {
-  const root = mkdtempSync(join(tmpdir(), 'gates-select-'))
-  const collected = ['test/b.test.ts', 'test/a.test.ts', 'test/sub/c.test.ts'] // what a full collection finds
-  const selected = selectFiles(fake(listing(root, collected)), root)
-  assert.ok('files' in selected)
-  assert.deepEqual(selected.files, collected.map((f) => join(root, f)).sort())
+test('combined: not for pytest, a repo\'s own tier command, or projects it does not have', () => {
+  assert.equal(combinedRun({ stack: 'pytest' }, undefined), undefined)
+  assert.equal(combinedRun({ stack: 'vitest', commands: { small: ['x'] } }, undefined), undefined)
+  assert.equal(combinedRun({ stack: 'vitest', commands: { medium: ['x'] } }, undefined), undefined)
+  assert.equal(combinedRun({ stack: 'vitest', projects: { smallMedium: [] } }, undefined), undefined)
 })
 
-test('a failing list is an error with the reason, never an empty selection', () => {
-  const root = mkdtempSync(join(tmpdir(), 'gates-select-'))
-  const failed = selectFiles(fake('', 1, 'Error: No projects matched'), root)
-  assert.ok('error' in failed)
-  assert.match(failed.error, /vitest list failed: exit 1 from .*No projects matched$/s)
-  const garbage = selectFiles(fake('not json'), root)
-  assert.ok('error' in garbage)
-  assert.match(garbage.error, /no JSON/)
-  const missing = selectFiles(['/nonexistent/vitest-binary'], root)
-  assert.ok('error' in missing)
-  assert.match(missing.error, /could not start/)
-  const shape = selectFiles(fake('{"a":1}'), root)
-  assert.ok('error' in shape)
+test('combined: a narrowing both tiers share is one run; related files make it `vitest related --run`', () => {
+  const both = { tests: { small: ['/r/a.test.ts'], medium: ['/r/a.test.ts'] } }
+  assert.deepEqual(combinedRun({ stack: 'vitest' }, both), [...SMALL_MEDIUM, '--passWithNoTests', '/r/a.test.ts'])
+  const related = { related: ['/r/app/x.ts'], tests: { small: ['/r/a.test.ts'], medium: ['/r/a.test.ts'] } }
+  assert.deepEqual(combinedRun({ stack: 'vitest' }, related), ['pnpm', 'exec', 'vitest', 'related', '--run', '--project', 'unit', '--project', 'nuxt', '--passWithNoTests', '/r/app/x.ts', '/r/a.test.ts'])
 })
 
-test('a list that finds no file is an empty selection the runner must not turn into a bare run', () => {
-  const root = mkdtempSync(join(tmpdir(), 'gates-select-'))
-  assert.deepEqual(selectFiles(fake('[]'), root), { files: [] })
+test('combined: tiers narrowed to different files cannot share a run', () => {
+  assert.equal(combinedRun({ stack: 'vitest' }, { tests: { small: ['/r/a.test.ts'] } }), undefined)
+  assert.equal(combinedRun({ stack: 'vitest' }, { tests: { small: ['/r/a.test.ts'], medium: ['/r/b.test.ts'] } }), undefined)
 })
 
-// The cross-check: the small run collects every file, so it saw each medium-tagged test the static scan may have missed.
-test('control: every file with a medium test was selected by the scan, nothing is missed', () => {
-  assert.deepEqual(missedByScan(['/r/a.test.ts', '/r/b.test.ts'], ['/r/a.test.ts', '/r/b.test.ts', '/r/c.test.ts']), [])
-  assert.deepEqual(missedByScan([], []), [])
+const tiered = (failed: Partial<Record<'small' | 'medium' | 'large', number | undefined>>, extra: Partial<RunSummary> = {}): RunSummary => ({
+  ...summary(5, 5),
+  tiers: {
+    small: { files: 1, tests: 5, failed: failed.small },
+    medium: { files: 1, tests: 5, failed: failed.medium },
+    large: { files: 0, tests: 0, failed: failed.large },
+  },
+  ...extra,
 })
 
-test('a file the small run saw medium tests in and the scan did not select is missed, sorted', () => {
-  assert.deepEqual(missedByScan(['/r/z.test.ts', '/r/a.test.ts', '/r/b.test.ts'], ['/r/b.test.ts']), [
-    '/r/a.test.ts',
-    '/r/z.test.ts',
-  ])
+test('combined: a failure is the tier whose test failed; the other tier of the same run stays green', () => {
+  const s = tiered({ small: 0, medium: 2 })
+  assert.equal(tierExit(s, 'medium', 1), 1)
+  assert.equal(tierExit(s, 'small', 1), 0)
 })
 
-test('without the small run\'s list the check is not made, and says so by returning undefined', () => {
-  assert.equal(missedByScan(undefined, ['/r/a.test.ts']), undefined)
+test('combined: a red exit no test explains (a file that fails to load, an unhandled error) is red in both tiers', () => {
+  const s = tiered({ small: 0, medium: 0 })
+  assert.equal(tierExit(s, 'small', 1), 1)
+  assert.equal(tierExit(s, 'medium', 1), 1)
 })
 
-test('merged summaries keep the union of their medium files', () => {
-  const a = { ...summary(1), mediumFiles: ['/r/a.test.ts'] }
-  const b = { ...summary(1), mediumFiles: ['/r/b.test.ts', '/r/a.test.ts'] }
-  assert.deepEqual(mergeSummaries([a, b]).mediumFiles, ['/r/a.test.ts', '/r/b.test.ts'])
-  assert.equal(mergeSummaries([summary(1), summary(1)]).mediumFiles, undefined)
+test('combined: a limit or retry breach named for a tier is that tier\'s even when no test failed there', () => {
+  const s = tiered({ small: 0, medium: 1 }, { limitRaised: ['a.test.ts > x (small tier, 60000 ms > 5000 ms)'] })
+  assert.equal(tierExit(s, 'small', 1), 1)
 })
 
-// The scan is used only when the cross-check can run; otherwise the medium run collects every file as before.
-test('the cross-check list comes from the small run, and from nothing else', () => {
-  const withFiles = { ...summary(1), mediumFiles: ['/r/a.test.ts'] }
-  assert.deepEqual(crossCheckList({ stack: 'vitest' }, withFiles), ['/r/a.test.ts'])
-})
-test('no small run in this invocation: no list, so no scan (--only=medium alone)', () => {
-  assert.equal(crossCheckList({ stack: 'vitest' }, undefined), undefined)
-})
-test('a commands.small override: its run may cover only part of the files, so no list, no scan', () => {
-  const withFiles = { ...summary(1), mediumFiles: ['/r/a.test.ts'] }
-  assert.equal(crossCheckList({ stack: 'vitest', commands: { small: ['x'] } }, withFiles), undefined)
-})
-test('a summary from a preset that does not write mediumFiles: no list, so no scan', () => {
-  assert.equal(crossCheckList({ stack: 'vitest' }, summary(1)), undefined)
+test('combined: a green exit is green everywhere; a summary from an older preset (no per-tier failures) cannot attribute, so it is red', () => {
+  assert.equal(tierExit(tiered({ small: 1 }), 'medium', 0), 0)
+  assert.equal(tierExit(tiered({ small: undefined, medium: undefined }), 'small', 1), 1)
+  assert.equal(tierExit(undefined, 'small', 1), 1)
 })
 
 // The narrowed run (selection.md, rules 5 and 6): the caller names the files, the gate runs those and nothing else.
 const R = '/r'
 const cmd = (runs: { argv: string[] }[]) => runs.map((r) => r.argv.join(' '))
 
-test('related: the small and medium runs of a Vitest kind become `vitest related --run <files>`, no static scan', () => {
+test('related: the small and medium runs of a Vitest kind become `vitest related --run <files>`', () => {
   const narrowing = { related: [`${R}/app/a.ts`, `${R}/app/b.vue`], tests: { small: [`${R}/test/unit/x.test.ts`], medium: [`${R}/test/unit/x.test.ts`] } }
   const small = tierRuns({ stack: 'vitest' }, 'small', narrowing)
   assert.equal(small.length, 1)
@@ -219,7 +191,6 @@ test('related: the small and medium runs of a Vitest kind become `vitest related
   )
   const medium = tierRuns({ stack: 'vitest' }, 'medium', narrowing)
   assert.equal(medium.length, 2, 'the nuxt project is its own run')
-  assert.ok(medium.every((r) => r.list === undefined), 'a narrowed run is not scanned')
   assert.ok(cmd(medium).every((c) => c.startsWith('pnpm exec vitest related --run ') && c.endsWith('/r/app/a.ts /r/app/b.vue /r/test/unit/x.test.ts')))
   assert.ok(cmd(medium).some((c) => c.includes('--project nuxt')) && cmd(medium).some((c) => c.includes('--tags-filter medium')))
 })
@@ -299,4 +270,26 @@ test('repoPaths: a test path that does not exist, or lies outside the gate\'s di
   assert.throws(() => repoPaths(root, ['test/missing.test.ts'], { mustExist: true }), (e) => e instanceof UsageError && /test\/missing\.test\.ts does not exist/.test(e.message))
   assert.throws(() => repoPaths(root, ['../other/a.test.ts'], { within: root }), (e) => e instanceof UsageError && /outside/.test(e.message))
   assert.deepEqual(repoPaths(root, ['../other/a.py']), [join(root, '../other/a.py')].map((p) => join(p)), 'a related file outside is handed over as it is')
+})
+
+const withUnhandled = (n: number | undefined, files = 0): RunSummary => ({ ...summary(files), files, unhandledErrors: n })
+
+test('a run that executed no file and hit an unhandled error is red, narrowed or not, whatever the exit code', () => {
+  for (const narrowed of [false, true])
+    assert.match(judgeTier('small', 0, withUnhandled(1), {}, narrowed).failure ?? '', /executed 0 files and hit 1 unhandled error/)
+})
+
+test('control: no file and no error stays a narrowed skip; an older preset (no count) is read as no error', () => {
+  assert.equal(judgeTier('small', 0, withUnhandled(0), {}, true).failure, undefined)
+  assert.match(judgeTier('small', 0, withUnhandled(0), {}, true).skip ?? '', /no small test is related/)
+  assert.equal(judgeTier('small', 0, withUnhandled(undefined), {}, true).failure, undefined)
+})
+
+test('control: a run that executed files is judged by the exit code and the floor, as before', () => {
+  assert.equal(judgeTier('small', 0, withUnhandled(2, 3), {}).failure, undefined)
+})
+
+test('merged summaries add up their unhandled errors; one from an older preset counts as none', () => {
+  assert.equal(mergeSummaries([withUnhandled(1), withUnhandled(2)]).unhandledErrors, 3)
+  assert.equal(mergeSummaries([withUnhandled(1), withUnhandled(undefined)]).unhandledErrors, 1)
 })

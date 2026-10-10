@@ -26,6 +26,7 @@ class Summary:
     skipped: int = 0
     quarantined: int = 0
     failed: int = 0
+    skips: list[dict[str, str]] = field(default_factory=list)
 
     def add_ran(self, nodeid: str, tier: str, failed: bool, protected: bool = False) -> None:
         file = nodeid.split("::", 1)[0]
@@ -44,6 +45,7 @@ class Summary:
             "tests": self.tests,
             "skipped": self.skipped,
             "quarantined": self.quarantined,
+            "skips": self.skips,
             "failed": self.failed,
             "flaky": [],  # no retries in pytest: a test is never flaky here
             "retriedBeyondRules": [],

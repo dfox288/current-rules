@@ -208,6 +208,14 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> Itera
     return report
 
 
+def _skip_reason(report: pytest.TestReport) -> str:
+    """The text a skip was given: a skipped report's `longrepr` is `(file, line, "Skipped: <reason>")`."""
+    longrepr = report.longrepr
+    reason = str(longrepr[2]) if isinstance(longrepr, tuple) and len(longrepr) == 3 else str(longrepr or "")
+    reason = reason.removeprefix("Skipped: ").strip()
+    return reason or "no reason given"
+
+
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
     marks = getattr(report, REPORT_ATTRIBUTE, None) or {}
     tier = marks.get("tier", "small")
@@ -216,6 +224,7 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
     if report.when == "call" or (report.when == "setup" and report.outcome in ("failed", "skipped")):
         if report.skipped:
             _summary.skipped += 1
+            _summary.skips.append({"label": report.nodeid, "reason": _skip_reason(report)})
             if quarantined:
                 _summary.quarantined += 1
             return

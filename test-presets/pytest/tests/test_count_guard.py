@@ -97,3 +97,52 @@ def pytest_runtest_makereport(item, call):
     tiers = inner.summary()["tiers"]
     assert counted(inner.summary()) != EXPECTED
     assert (tiers["small"]["tests"], tiers["medium"]["tests"], tiers["large"]["tests"]) == (10, 0, 0)
+
+
+SKIPS = {
+    "test_skips.py": '''
+import pytest
+
+def test_ran(): pass
+
+@pytest.mark.skip(reason="needs the staging bucket")
+def test_marked(): pass
+
+@pytest.mark.skip
+def test_marked_without_reason(): pass
+
+@pytest.mark.skipif(True, reason="no GPU on this host")
+def test_conditional(): pass
+
+def test_in_the_body():
+    pytest.skip("the body decided")
+
+@pytest.mark.quarantine
+def test_quarantined(): pass
+''',
+}
+
+
+@pytest.mark.medium
+def test_every_skip_is_in_the_summary_with_its_reason(run_inner):
+    inner = run_inner("-n0", files=SKIPS)
+    inner.result.assert_outcomes(passed=1, skipped=5)
+    skips = {s["label"]: s["reason"] for s in inner.summary()["skips"]}
+    assert skips == {
+        "test_skips.py::test_marked": "needs the staging bucket",
+        "test_skips.py::test_marked_without_reason": "unconditional skip",
+        "test_skips.py::test_conditional": "no GPU on this host",
+        "test_skips.py::test_in_the_body": "the body decided",
+        "test_skips.py::test_quarantined": "quarantined: out of the suite that blocks a merge",
+    }
+    assert inner.summary()["skipped"] == 5
+    assert inner.summary()["quarantined"] == 1
+
+
+@pytest.mark.medium
+def test_two_workers_list_the_same_skips(run_inner):
+    inner = run_inner("-n", "2", "--dist=load", files=SKIPS)
+    assert sorted(s["label"] for s in inner.summary()["skips"]) == sorted(
+        f"test_skips.py::{n}"
+        for n in ("test_marked", "test_marked_without_reason", "test_conditional", "test_in_the_body", "test_quarantined")
+    )

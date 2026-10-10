@@ -1,6 +1,6 @@
 {
   "name": "@dfox288/test-gates",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "The shared gate script of the testing baseline: one set of gate names for Vitest and pytest repos",
   "license": "UNLICENSED",
   "type": "module",
@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test src/gates.test.ts src/docs.test.ts",
+    "test": "node --test src/gates.test.ts src/docs.test.ts src/run.test.ts src/workflows.test.ts",
     "check:dist": "rm -rf .tmp/dist-check && tsc -p tsconfig.json --outDir .tmp/dist-check && diff -r dist .tmp/dist-check && echo 'dist is fresh'"
   },
   "devDependencies": {
