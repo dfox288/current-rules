@@ -48,11 +48,40 @@ function tool(dir: string, root: string, name: string): string | undefined {
 const ESLINT_CONFIGS = ['js', 'mjs', 'cjs', 'ts', 'mts', 'cts'].map((e) => `eslint.config.${e}`)
 const GENERATED = /\.nuxt\/[\w.\-/]*/g
 
-/** The `.nuxt/…` paths that the file names (an import, an `extends`, a reference, an `include`), relative to the project. */
+/**
+ * The text with its line and block comments blanked out. Quotes (single, double, backtick) are tracked so that a `//` inside a
+ * string (a URL) is not read as a comment. A regex literal holding a quote is not understood; the worst that does is leave a
+ * comment in, which is what happened before comments were skipped.
+ */
+function withoutComments(text: string): string {
+  let out = ''
+  let i = 0
+  while (i < text.length) {
+    const c = text[i]
+    const next = text[i + 1]
+    if (c === '/' && next === '/') {
+      while (i < text.length && text[i] !== '\n') i++
+    } else if (c === '/' && next === '*') {
+      const end = text.indexOf('*/', i + 2)
+      i = end === -1 ? text.length : end + 2
+    } else if (c === "'" || c === '"' || c === '`') {
+      let j = i + 1
+      while (j < text.length && text[j] !== c && !(c !== '`' && text[j] === '\n')) j += text[j] === '\\' ? 2 : 1
+      out += text.slice(i, j + 1)
+      i = j + 1
+    } else {
+      out += c
+      i++
+    }
+  }
+  return out
+}
+
+/** The `.nuxt/…` paths that the file names in code, not in a comment (an import, an `extends`, a reference, an `include`), relative to the project. */
 function generatedIn(dir: string, file: string): string[] {
   const path = join(dir, file)
   if (!existsSync(path)) return []
-  return readFileSync(path, 'utf8').match(GENERATED) ?? []
+  return withoutComments(readFileSync(path, 'utf8')).match(GENERATED) ?? []
 }
 
 /** The generated files a half of the hook points into that do not exist yet, each with the half that needs it. */

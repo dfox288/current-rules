@@ -49,9 +49,10 @@ interface Repo {
 /**
  * A repo with the stub tools in `<sub>/node_modules/.bin` and the file `app/ok.ts` committed. As after an install, it has the
  * `.nuxt/` files, an ESLint config that imports `.nuxt/eslint.config.mjs` and a tsconfig that references `.nuxt/tsconfig.app.json`;
- * `generated: false` is a fresh clone where the install ran without scripts, `eslintConfig: false` a repo with no such config.
+ * `generated: false` is a fresh clone where the install ran without scripts, `eslintConfig: false` a repo with no such config
+ * and a string the config's text.
  */
-function repo(name: string, opts: { sub?: string; skip?: string[]; tsconfig?: string; generated?: boolean; eslintConfig?: boolean } = {}): Repo {
+function repo(name: string, opts: { sub?: string; skip?: string[]; tsconfig?: string; generated?: boolean; eslintConfig?: boolean | string } = {}): Repo {
   const root = join(scratch, name)
   const dir = opts.sub ? join(root, opts.sub) : root
   mkdirSync(join(dir, 'app'), { recursive: true })
@@ -67,7 +68,10 @@ function repo(name: string, opts: { sub?: string; skip?: string[]; tsconfig?: st
   }
   writeFileSync(join(dir, 'tsconfig.json'), opts.tsconfig ?? '{ "files": [], "references": [{ "path": "./.nuxt/tsconfig.app.json" }] }\n')
   writeFileSync(join(dir, 'package.json'), '{ "type": "commonjs" }\n')
-  if (opts.eslintConfig !== false) writeFileSync(join(dir, 'eslint.config.mjs'), "import withNuxt from './.nuxt/eslint.config.mjs'\nexport default withNuxt()\n")
+  if (opts.eslintConfig !== false) {
+    const text = typeof opts.eslintConfig === 'string' ? opts.eslintConfig : "import withNuxt from './.nuxt/eslint.config.mjs'\nexport default withNuxt()\n"
+    writeFileSync(join(dir, 'eslint.config.mjs'), text)
+  }
   if (opts.generated !== false) {
     mkdirSync(join(dir, '.nuxt'), { recursive: true })
     writeFileSync(join(dir, '.nuxt/eslint.config.mjs'), 'export default []\n')
@@ -304,6 +308,43 @@ describe('the hook making .nuxt itself', () => {
     expect(h.code, h.out).toBe(0)
     expect(tools(h.calls)).toEqual(['prettier', 'nuxt', 'eslint', 'vue-tsc'])
     expect(h.out).toMatch(/\.nuxt\/eslint\.config\.mjs.* missing/)
+  })
+
+  it('does not read a .nuxt/ path out of a comment in the ESLint config, whatever the comment style', () => {
+    const config = [
+      "// the module writes .nuxt/from-line-comment.mjs when it is enabled",
+      "import withNuxt from './.nuxt/eslint.config.mjs' // not .nuxt/trailing.mjs",
+      '/* generated: .nuxt/from-block.mjs,',
+      '   .nuxt/second-line.mjs */',
+      "const site = 'https://example.com//' // .nuxt/after-a-url.mjs",
+      'export default withNuxt()',
+      '',
+    ].join('\n')
+    const r = repo('prepare-comment', { generated: false, eslintConfig: config })
+    stage(r, 'app/a.ts', 'export const a = 1\n')
+    const h = hook(r)
+    expect(h.code, h.out).toBe(0)
+    expect(tools(h.calls)).toEqual(['prettier', 'nuxt', 'eslint', 'vue-tsc'])
+    expect(h.out).not.toMatch(/from-line-comment|trailing|from-block|second-line|after-a-url/)
+  })
+
+  it('still refuses a real import of a .nuxt/ file that prepare does not write, with a comment beside it', () => {
+    const config = "// .nuxt/only-in-a-comment.mjs\nimport withNuxt from './.nuxt/eslint.config.mjs'\nimport extra from './.nuxt/never-written.mjs'\nexport default withNuxt(extra)\n"
+    const r = repo('prepare-real-missing', { generated: false, eslintConfig: config })
+    stage(r, 'app/a.ts', 'export const a = 1\n')
+    const h = hook(r)
+    expect(h.code).toBe(1)
+    expect(h.out).toMatch(/nuxt prepare ran but did not write \.nuxt\/never-written\.mjs/)
+    expect(h.out).not.toContain('only-in-a-comment')
+  })
+
+  it('does not read a .nuxt/ path out of a comment in the tsconfig either', () => {
+    const tsconfig = '{\n  // .nuxt/tsconfig.phantom.json is not written\n  "files": [],\n  "references": [{ "path": "./.nuxt/tsconfig.app.json" }] /* .nuxt/also-not.json */\n}\n'
+    const r = repo('prepare-tsconfig-comment', { generated: false, eslintConfig: false })
+    stage(r, 'tsconfig.json', tsconfig)
+    const h = hook(r)
+    expect(h.code, h.out).toBe(0)
+    expect(h.out).not.toMatch(/phantom|also-not/)
   })
 
   it('does not prepare when neither the ESLint config nor the tsconfig points into .nuxt', () => {

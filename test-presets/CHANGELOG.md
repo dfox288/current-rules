@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Vitest preset, pre-commit hook: a `.nuxt/` path in a comment of the ESLint config or the tsconfig is no longer read as a file `nuxt prepare` must write (it refused the commit with 'did not write'); only paths in code count. Refs horizon-surveyor#337.
+
 ## 0.6.0 (2026-10-10)
 
 The open items of horizon-surveyor#83 (R198, R199, R203). All three packages move to 0.6.0. A repo gets each change by a
