@@ -1,7 +1,9 @@
 // Helpers for the `e2e` project (tier large): the build-once global setup and a server for the built
 // output. The browser helper is `./browser`.
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { fileURLToPath } from 'node:url';
 /** A port nothing listens on, found by binding `127.0.0.1` (never `listen(0)` without a host). */
 export function freePort() {
     return new Promise((resolve, reject) => {
@@ -82,27 +84,63 @@ export function runBuild(command, args, options = {}) {
     });
 }
 runBuild.defaultTimeoutMs = BUILD_TIMEOUT_MS;
+/** Set in the child process that runs the setup module: there `buildOnce` runs the build itself. */
+const CHILD_ENV = 'E2E_BUILD_ONCE_CHILD';
+/** The file that called `buildOnce`: the first stack frame outside this module. */
+function callerFile() {
+    const own = fileURLToPath(import.meta.url);
+    for (const line of (new Error().stack ?? '').split('\n').slice(1)) {
+        const match = /(?:\(|\s)(?:file:\/\/)?(\/[^():]+?|[A-Za-z]:[\\/][^():]+?):\d+:\d+\)?\s*$/.exec(line);
+        if (match && match[1] !== own)
+            return match[1];
+    }
+    return undefined;
+}
+/** The script of the child process: `build-child.js` in `dist`, its `.ts` source when the tests run from `src`. */
+function childScript() {
+    const js = fileURLToPath(new URL('./build-child.js', import.meta.url));
+    return existsSync(js) ? js : fileURLToPath(new URL('./build-child.ts', import.meta.url));
+}
 /**
  * The global setup of the `e2e` project: `export default buildOnce(() => runBuild('pnpm', ['build']))`.
  * Vitest runs it once per run, before the first `e2e` file, and only when the run selects an `e2e`
  * file. It puts back what a build tool may leave wrapped (stdout, stderr, console): left wrapped,
  * the reporter's output after the hook is lost (cove#60).
  *
+ * The build runs in a child process, not in the Vitest main process: a build that runs in-process (Nuxt's `loadNuxt` and
+ * `buildNuxt`, Vite, Nitro) leaves its module graph in the main process's heap for the rest of the run (cove#287: about
+ * 2.4 GiB of a 5 GiB peak, idle while the tests ran). The child loads the module that called `buildOnce` (found from the
+ * call stack, or `setupFile`) through Vite's SSR loader and runs its default export, so the `build` that runs is the one
+ * written in that module, with the environment of the run, and the process (and its heap) is gone when the build is done.
+ * The build's output is shown only when it fails, as `runBuild` does. The module is loaded without the repo's Vite
+ * config, so it must not rely on an alias or plugin of it. `inProcess: true` runs `build` in the main process, as 0.6.0
+ * did; so does a call whose module cannot be found (a note on stderr says so).
+ *
  * Vitest puts no time limit on a global setup (the hook timeout is for tests and their hooks), so the limit is here:
  * `runBuild` kills a build past its own limit, and `buildOnce` rejects when the function has not finished within
- * `timeoutMs` (default 15 minutes). A rejection fails the run before any e2e file. For a build function that is not
- * `runBuild`, the rejection cannot stop the work it started.
+ * `timeoutMs` (default 15 minutes); the child, with everything it started, is killed at the same limit. A rejection
+ * fails the run before any e2e file. For an in-process build function that is not `runBuild`, the rejection cannot stop
+ * the work it started.
  */
 export function buildOnce(build, options = {}) {
     const timeoutMs = options.timeoutMs ?? BUILD_TIMEOUT_MS * 1.5;
+    const setupFile = options.inProcess || process.env[CHILD_ENV] ? undefined : (options.setupFile ?? callerFile());
     return async function setup() {
         const stdout = process.stdout.write;
         const stderr = process.stderr.write;
         const consoleMethods = { ...console };
         let limit;
         try {
+            if (!options.inProcess && !process.env[CHILD_ENV] && !setupFile)
+                process.stderr.write('[test-preset] buildOnce: cannot tell which module called it, the build runs in this process\n');
             await Promise.race([
-                build(),
+                setupFile
+                    ? runBuild(process.execPath, [childScript(), setupFile], {
+                        cwd: process.cwd(),
+                        env: { [CHILD_ENV]: '1' },
+                        timeoutMs,
+                    })
+                    : build(),
                 new Promise((_, reject) => {
                     limit = setTimeout(() => reject(new Error(`e2e build did not finish within ${seconds(timeoutMs)} s`)), timeoutMs);
                 }),

@@ -41,12 +41,78 @@ describe('runBuild', () => {
 describe('buildOnce', () => {
   it('rejects when the build function does not finish in time, and puts stdout back', { timeout: 5000 }, async () => {
     const stdout = process.stdout.write
-    const setup = buildOnce(() => new Promise<void>(() => {}), { timeoutMs: 200 })
+    const setup = buildOnce(() => new Promise<void>(() => {}), { timeoutMs: 200, inProcess: true })
     await expect(setup()).rejects.toThrow(/e2e build did not finish within 0\.2 s/)
     expect(process.stdout.write).toBe(stdout)
   })
   it('control: a build that finishes resolves and leaves no timer behind', async () => {
-    await expect(buildOnce(async () => {}, { timeoutMs: 60_000 })()).resolves.toBeUndefined()
+    await expect(buildOnce(async () => {}, { timeoutMs: 60_000, inProcess: true })()).resolves.toBeUndefined()
+  })
+})
+
+describe('buildOnce: the build runs in a child process', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  // A global setup module as an app writes it: `export default buildOnce(...)`. The build in it writes where it ran;
+  // the function the test passes to `buildOnce` in the test process is never what runs.
+  const setupModule = (dir: string, body: string) => {
+    const file = join(dir, 'global-setup.mjs')
+    writeFileSync(
+      file,
+      `import { writeFileSync } from 'node:fs'\n` +
+        `import { buildOnce } from ${JSON.stringify(join(here, 'index.ts'))}\n` +
+        `export default buildOnce(async () => {\n${body}\n})\n`,
+    )
+    return file
+  }
+
+  it('runs the build of the setup module in another process, with the env of the run', { timeout: 60_000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'build-once-child-'))
+    const out = join(dir, 'out.json')
+    process.env.BUILD_ONCE_TEST_ENV = 'inherited'
+    try {
+      const file = setupModule(
+        dir,
+        `writeFileSync(${JSON.stringify(out)}, JSON.stringify({ pid: process.pid, env: process.env.BUILD_ONCE_TEST_ENV }))`,
+      )
+      const setup = ((await import(file)) as { default: () => Promise<void> }).default
+      await expect(setup()).resolves.toBeUndefined()
+      const ran = JSON.parse(readFileSync(out, 'utf8'))
+      expect(ran.pid).not.toBe(process.pid)
+      expect(ran.env).toBe('inherited')
+    } finally {
+      delete process.env.BUILD_ONCE_TEST_ENV
+    }
+  })
+
+  it('takes the module to run from the option when it is given', { timeout: 60_000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'build-once-child-'))
+    const out = join(dir, 'out.txt')
+    const file = setupModule(dir, `writeFileSync(${JSON.stringify(out)}, String(process.pid))`)
+    await expect(buildOnce(async () => {}, { setupFile: file })()).resolves.toBeUndefined()
+    expect(Number(readFileSync(out, 'utf8'))).not.toBe(process.pid)
+  })
+
+  it('a build that throws in the child rejects the setup with the build\'s output', { timeout: 60_000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'build-once-child-'))
+    const file = setupModule(dir, `console.error('output-of-the-build'); throw new Error('boom-from-the-build')`)
+    const setup = ((await import(file)) as { default: () => Promise<void> }).default
+    await expect(setup()).rejects.toThrow(/e2e build failed[\s\S]*output-of-the-build[\s\S]*boom-from-the-build/)
+  })
+
+  it('puts stdout back when the child build fails', { timeout: 60_000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'build-once-child-'))
+    const stdout = process.stdout.write
+    const file = setupModule(dir, `throw new Error('boom')`)
+    await expect(buildOnce(async () => {}, { setupFile: file })()).rejects.toThrow(/boom/)
+    expect(process.stdout.write).toBe(stdout)
+  })
+
+  it('a child build past the limit is killed and the setup rejects', { timeout: 60_000 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'build-once-child-'))
+    const pidFile = join(dir, 'pid')
+    const file = setupModule(dir, `writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); await new Promise(() => {})`)
+    await expect(buildOnce(async () => {}, { setupFile: file, timeoutMs: 8000 })()).rejects.toThrow(/e2e build (timed out|did not finish)/)
+    await expect.poll(() => alive(Number(readFileSync(pidFile, 'utf8'))), { timeout: 15_000 }).toBe(false)
   })
 })
 

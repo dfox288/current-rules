@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Vitest preset, `/e2e`: `buildOnce` runs the build in a child process, not in the Vitest main process. A Nuxt build run in-process (`loadNuxt` and `buildNuxt` in the app's global setup) stayed in the main process's heap while the tests ran: cove's `upload-limit.e2e.test.ts` held 2.4 GiB there and was OOM-killed at a 4 GB limit (peak 5.1 GiB uncapped). The child loads the module that called `buildOnce` through Vite's SSR loader (without the repo's Vite config) and runs its default export, so the app's `buildOnce(...)` call needs no change; the child gets the run's environment, is killed with the build's other processes at `timeoutMs`, and a failing build rejects the setup with the build's output. New options: `inProcess: true` keeps the old in-process build, `setupFile` names the module when the call stack does not. **Behaviour:** the build's output is shown only when it fails, and a global setup module must not rely on an alias or plugin of the repo's Vite config. Measured on cove (4 GB container, 3 runs, one file): vitest main 2.4 GiB to 0.47 GiB, no OOM kill. Refs cove#287.
+
 ## 0.6.0 (2026-10-10)
 
 The open items of horizon-surveyor#83 (R198, R199, R203). All three packages move to 0.6.0. A repo gets each change by a

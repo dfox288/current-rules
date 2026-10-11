@@ -108,6 +108,12 @@ Tests carry tags with `it(name, { tags: ['medium'] }, fn)`. Untagged tests in `u
   that throws) ends `[test-preset] FAIL: the run executed 0 files and hit N unhandled error(s); the first: ...` and exits 1,
   also under `--dangerouslyIgnoreUnhandledErrors`. The run summary carries `unhandledErrors`, and the gate's count guard
   is red for it even on a narrowed run (where 0 tests is otherwise a skip).
+- **The shared e2e build runs in a child process.** `buildOnce(build)` no longer runs `build` in the Vitest main process:
+  a Nuxt build there leaves its module graph in the main process's heap for the whole run (cove#287: about 2.4 GiB of a
+  5 GiB peak). The child loads the global setup module that called `buildOnce` (found from the call stack; `setupFile`
+  names it) through Vite's SSR loader, without the repo's Vite config, and runs its default export, so `build` is the one
+  written in that module and has the run's environment. Its output is shown when it fails; a failing build fails the
+  setup. `inProcess: true` keeps the old behaviour.
 - **The shared e2e build is time-bounded.** Vitest puts no limit on a `globalSetup` (`hookTimeout` is for tests and their
   hooks), so the limit is in the helpers. `runBuild(command, args, { timeoutMs })` kills the command and everything it
   started (its own process group) after `timeoutMs` (default 10 minutes) and rejects with `e2e build timed out after N s`.
