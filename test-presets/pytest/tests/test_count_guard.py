@@ -146,3 +146,78 @@ def test_two_workers_list_the_same_skips(run_inner):
         f"test_skips.py::{n}"
         for n in ("test_marked", "test_marked_without_reason", "test_conditional", "test_in_the_body", "test_quarantined")
     )
+
+
+SUBTESTS = {
+    "test_subtests.py": '''
+import unittest
+
+import pytest
+
+pytestmark = pytest.mark.medium
+
+class TestCases(unittest.TestCase):
+    def test_loop(self):
+        for shell in ("sh", "bash", "zsh"):
+            with self.subTest(shell=shell):
+                pass
+
+def test_fixture(subtests):
+    for n in range(4):
+        with subtests.test(n=n):
+            pass
+
+@pytest.mark.parametrize("n", [1, 2])
+def test_parametrised(n, subtests):
+    with subtests.test(msg="inner"):
+        pass
+
+def test_plain(): pass
+''',
+}
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("args", [("-n0",), ("-n", "2", "--dist=load")], ids=["one-process", "two-workers"])
+def test_subtests_are_not_tests(run_inner, args):
+    # pytest 9 reports every subtest as a `call` report of its test: 3 + 4 + 2 of them here, on top of the 5 items.
+    inner = run_inner(*args, files=SUBTESTS)
+    inner.result.assert_outcomes(passed=5)
+    summary = inner.summary()
+    assert (summary["tests"], summary["tiers"]["medium"]["tests"]) == (5, 5)
+    assert "ran 1 files, 5 tests (small 0, medium 5, large 0)" in inner.output()
+
+
+SUBTEST_FAILURES = {
+    "test_subtest_failures.py": '''
+import unittest
+
+import pytest
+
+pytestmark = pytest.mark.medium
+
+class TestCases(unittest.TestCase):
+    def test_loop(self):
+        for n in range(3):
+            with self.subTest(n=n):
+                assert n != 1
+
+def test_fixture(subtests):
+    for n in range(3):
+        with subtests.test(n=n):
+            assert n != 2
+    with subtests.test(msg="no GPU"):
+        pytest.skip("no GPU on this host")
+''',
+}
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("args", [("-n0",), ("-n", "2", "--dist=load")], ids=["one-process", "two-workers"])
+def test_a_failed_subtest_is_a_failure_and_still_not_a_test(run_inner, args):
+    # Three failures, as pytest counts them: two failed subtests and the failed test that holds one. A skipped subtest keeps its
+    # reason in the skips; the two tests are the only tests.
+    inner = run_inner(*args, files=SUBTEST_FAILURES)
+    summary = inner.summary()
+    assert (summary["tests"], summary["failed"], summary["skipped"]) == (2, 3, 1)
+    assert summary["skips"] == [{"label": "test_subtest_failures.py::test_fixture", "reason": "no GPU on this host"}]
