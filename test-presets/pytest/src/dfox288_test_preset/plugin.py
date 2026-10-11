@@ -216,17 +216,28 @@ def _skip_reason(report: pytest.TestReport) -> str:
     return reason or "no reason given"
 
 
+def _skip(report: pytest.TestReport, quarantined: bool) -> None:
+    _summary.skipped += 1
+    _summary.skips.append({"label": report.nodeid, "reason": _skip_reason(report)})
+    if quarantined:
+        _summary.quarantined += 1
+
+
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
     marks = getattr(report, REPORT_ATTRIBUTE, None) or {}
     tier = marks.get("tier", "small")
     quarantined = marks.get("quarantined", False)
     protected = marks.get("protected", False)
-    if report.when == "call" or (report.when == "setup" and report.outcome in ("failed", "skipped")):
+    if isinstance(report, pytest.SubtestReport):
+        # pytest 9 reports each subtest as a `call` report of its test (`subTest`, the `subtests` fixture): one test, many
+        # reports. The test is counted by its own report; a subtest only adds a failure, as pytest's own summary does.
+        if report.failed:
+            _summary.failed += 1
+        elif report.skipped:
+            _skip(report, quarantined)
+    elif report.when == "call" or (report.when == "setup" and report.outcome in ("failed", "skipped")):
         if report.skipped:
-            _summary.skipped += 1
-            _summary.skips.append({"label": report.nodeid, "reason": _skip_reason(report)})
-            if quarantined:
-                _summary.quarantined += 1
+            _skip(report, quarantined)
             return
         _summary.add_ran(report.nodeid, tier, report.failed, protected)
     elif report.when == "teardown" and report.failed:

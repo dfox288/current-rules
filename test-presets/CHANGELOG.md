@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Vitest preset, pre-commit hook: a `.nuxt/` path in a comment of the ESLint config or the tsconfig is no longer read as a file `nuxt prepare` must write (it refused the commit with 'did not write'); only paths in code count. Refs horizon-surveyor#337.
+- Vitest preset, checks-map shape test: the glob matcher reads gitignore's backslash escape like Current's (the `ignore` package): `\[hive\]` is a literal `[hive]` directory, so `web/app/pages/\[hive\]/**` matches a file under it (it was read as a character class and matched `h`, `i`, `v`, `e`); `\*`, `\?`, `\]` and `\\` are literal too, and an unescaped `[…]` is still a class. Refs horizon-surveyor#338.
+- Pytest preset, count guard: a subtest is not a test. pytest 9 reports each `self.subTest(...)` and `subtests.test(...)` as a `call` report of its test, and the plugin counted every one: tide's medium tier read 452 tests where pytest ran 396 items (pytest's own line for it says "56 subtests passed"). The test is counted by its own report; a failed subtest adds to `failed` (as in pytest's own summary), a skipped one stays in `skips` with its reason. **Behaviour:** a suite that uses subtests reads lower, to the number of items; a floor set from the old count may need a look at the repin. Refs horizon-surveyor#347.
+
 ## 0.6.0 (2026-10-10)
 
 The open items of horizon-surveyor#83 (R198, R199, R203). All three packages move to 0.6.0. A repo gets each change by a

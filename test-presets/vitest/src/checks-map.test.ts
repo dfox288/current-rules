@@ -125,4 +125,27 @@ describe('globs are gitignore syntax from the repo root', () => {
     expect(globMatches('src/lookout/worker', 'src/lookout/worker/schema/0001_arrivals.sql')).toBe(true)
     expect(globMatches('web/test/nuxt/*.test.ts', 'web/test/nuxt/deeper/x.test.ts')).toBe(false)
   })
+
+  // Every row is what the `ignore` package (Current's matcher, 7.0.10) answers for the same pattern and path.
+  it.each([
+    ['web/app/pages/\\[hive\\]/**', 'web/app/pages/[hive]/index.vue', true],
+    ['web/app/pages/\\[hive\\]/**', 'web/app/pages/h/index.vue', false],
+    ['web/app/pages/\\[hive\\]', 'web/app/pages/[hive]/index.vue', true],
+    ['a/\\[b', 'a/[b', true],
+    ['a/\\]b', 'a/]b', true],
+    ['a/b\\]', 'a/b]', true],
+    ['a/\\*', 'a/*', true],
+    ['a/\\*', 'a/x', false],
+    ['a/\\?', 'a/?', true],
+    ['a/\\?', 'a/x', false],
+    ['a/\\\\b', 'a/\\b', true],
+    ['a/[\\]]b', 'a/]b', true],
+    // an unescaped bracket stays a character class
+    ['pages/[hive]/**', 'pages/h/index.vue', true],
+    ['pages/[hive]/**', 'pages/[hive]/index.vue', false],
+    ['a/[!x]', 'a/y', true],
+    ['a/[!x]', 'a/x', false],
+  ])('reads %s against %s as %s, as Current does', (glob, path, expected) => {
+    expect(globMatches(glob, path)).toBe(expected)
+  })
 })
