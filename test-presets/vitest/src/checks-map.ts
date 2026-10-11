@@ -42,7 +42,7 @@ export function readRepoFiles(root: string): RepoFiles {
   return { map: load('checks.map.yml'), kinds: load('checks.kinds.yml'), tracked, unreadable }
 }
 
-/** A gitignore-syntax glob as a regex over a repo-root-relative path (or one of its parent directories). */
+/** A gitignore-syntax glob (a backslash makes the next character literal, as in Current's matcher) as a regex over a repo-root-relative path (or one of its parent directories). */
 function globRegex(glob: string): RegExp {
   let p = glob.endsWith('/') ? glob.slice(0, -1) : glob
   // a slash at the start or in the middle anchors the glob to the root
@@ -62,9 +62,13 @@ function globRegex(glob: string): RegExp {
       i += 1
     } else if (c === '*') re += '[^/]*'
     else if (c === '?') re += '[^/]'
-    else if (c === '[') {
-      const end = p.indexOf(']', i + 1)
-      if (end === -1) re += '\\['
+    else if (c === '\\' && i + 1 < p.length) {
+      // gitignore's escape: the next character is itself (`\[`, `\]`, `\*`, `\?`, `\\`)
+      re += p[++i]!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    } else if (c === '[') {
+      let end = i + 1
+      while (end < p.length && p[end] !== ']') end += p[end] === '\\' ? 2 : 1
+      if (end >= p.length) re += '\\['
       else {
         re += p.slice(i, end + 1).replace(/^\[!/, '[^')
         i = end

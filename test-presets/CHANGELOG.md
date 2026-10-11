@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Vitest preset, pre-commit hook: a `.nuxt/` path in a comment of the ESLint config or the tsconfig is no longer read as a file `nuxt prepare` must write (it refused the commit with 'did not write'); only paths in code count. Refs horizon-surveyor#337.
+- Vitest preset, checks-map shape test: the glob matcher reads gitignore's backslash escape like Current's (the `ignore` package): `\[hive\]` is a literal `[hive]` directory, so `web/app/pages/\[hive\]/**` matches a file under it (it was read as a character class and matched `h`, `i`, `v`, `e`); `\*`, `\?`, `\]` and `\\` are literal too, and an unescaped `[…]` is still a class. Refs horizon-surveyor#338.
 
 ## 0.6.0 (2026-10-10)
 
