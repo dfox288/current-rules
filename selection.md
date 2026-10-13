@@ -109,7 +109,7 @@ once ran every PR in full for a day unnoticed.
 - **The only green "every kind runs"** is what the decision script decides from data it read: no status yet for a kind,
   a human PR, a creator other than Current's App, a merge ref whose tree differs from the head's. Its reason is in the
   job summary.
-- **The `lookup` job** (it skips a main push whose tree already passed in a PR run) follows the same split: a read it
+- **The `lookup` job** (it skips the nightly full run when the commit's tree already passed a full run) follows the same split: a read it
   cannot make is breakage and sorts into the classes above (red at once, or retried twice, then red). Only a decision
   from data it read, with its reason, lets the gates run or skip. A failed read never sets `skip=true`, and no longer
   quietly sets `skip=false`.
