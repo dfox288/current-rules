@@ -90,6 +90,35 @@ a kind has neither `always` nor `paths`; a glob matches no tracked file; a glob 
 nothing matches already runs everything); an edge's `tests` are not the kind's test files; `triggers` or `edges` sit
 on a kind without `narrow`; `narrow` names a step not in the table above.
 
+## The CI plan step: breakage is red, data decides
+
+Every app's checks workflow has a `plan` job that decides, on a PR, which kinds `checks` runs or skips. Before the
+decision script decides it reads two things: the head commit's tree and the head's commit statuses. Those reads, and the
+step's own tools (`git`, `gh`, the script's interpreter), are the subject of this rule: a failure of any of them is
+**breakage**, never data. The step does not turn breakage into "every kind runs" and stay green: a runner without `gh`
+once ran every PR in full for a day unnoticed.
+
+- **Red at once** (a re-run does not fix it): `gh` missing (exit 127 or 126); `gh` exit 4 (authentication); `git`
+  failing; the decision script crashing or exiting 2 (input unreadable); input the script cannot use (statuses that are
+  not a list, a tree that is not 40 hex characters); no decision script on the base, except in the PR that adds it.
+- **Retried twice, then red:** a `gh api` call that fails with HTTP 5xx, HTTP 429, or no HTTP status at all (network,
+  DNS, TLS). The retries are the step's own, not a job re-run: three attempts, then the step is red. Any other HTTP error
+  (403, 404, 422) is red at once.
+- **A failure never causes a skip.** When `plan` is red, or the job dies, `checks` still runs every kind: a red costs a
+  re-run, a skip could cost a missed failure.
+- **The only green "every kind runs"** is what the decision script decides from data it read: no status yet for a kind,
+  a human PR, a creator other than Current's App, a merge ref whose tree differs from the head's. Its reason is in the
+  job summary.
+- **The `lookup` job** (it skips a main push whose tree already passed in a PR run) follows the same split: a read it
+  cannot make is breakage and sorts into the classes above (red at once, or retried twice, then red). Only a decision
+  from data it read, with its reason, lets the gates run or skip. A failed read never sets `skip=true`, and no longer
+  quietly sets `skip=false`.
+- **Tests.** The step's shell is tested by running its parsed `run:` with a stand-in `gh`: one case per red class
+  above; the retry (fails twice and succeeds the third time: green; fails three times: red); and the legitimate full.
+  The cases that pin the loud failures are protected tests.
+
+Origin: horizon-surveyor#327, D-496.
+
 ## Example (Python and Nuxt)
 
 ```yaml
