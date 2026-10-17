@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `init/init.mjs`: writes a Nuxt repo's entry files (lint and typecheck kinds, no test kind) and checks them. Not part of an npm package; run from a checkout. Refs horizon-surveyor#387, D-499.
+
 ## 0.7.0 (2026-10-12)
 
 Minor, not patch: horizon-surveyor#347 changes how the pytest plugin counts tests (a subtest is not a test), so an app's per-tier counts and floors can change at the repin. The vitest, gates and pytest packages all move to 0.7.0.

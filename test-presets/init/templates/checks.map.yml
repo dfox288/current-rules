@@ -1,0 +1,6 @@
+# checks.map.yml (repo root), version 2: which check kinds a change runs, and how much of each (current-rules selection.md).
+# The kinds' environment is checks.kinds.yml. This repo has no tests yet: lint and typecheck run whole with every change.
+# The first job that writes tests adds the test kind here and in checks.kinds.yml.
+version: 2
+always: [lint, typecheck]
+kinds: {}
