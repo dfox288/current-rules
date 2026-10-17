@@ -9,6 +9,7 @@ its justified differences.
 | `vitest/` | Vitest config builder, small's guards, count guard, DB helper, `e2e` build-once and browser helper | Nuxt / TypeScript |
 | `pytest/` | pytest plugin (markers, limits, guards, count guard) and DB helper | Python 3.14 |
 | `gates/` | the shared gate script, one set of gate names for both stacks | both |
+| `init/` | `init.mjs`: writes a Nuxt repo's entry files (gate script, lint and typecheck kinds, no test kind) and checks them | Nuxt / TypeScript |
 | `fixtures/` | a minimal Nuxt app and a minimal Python package that consume the presets, and `break-it.ts` | tests of the presets |
 
 ## Install
@@ -38,6 +39,17 @@ dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdir
 pnpm fetches a GitHub dependency as a tarball (no `git` needed); uv runs `git`. The built JavaScript (`dist/`) is
 committed, because pnpm skips install scripts (`prepare`) here: after changing `vitest/src` or `gates/src` run
 `pnpm build` in that directory, and `pnpm check:dist` fails when `dist/` is stale.
+
+## Init (entry files)
+
+`node test-presets/init/init.mjs --stack nuxt --dir <repo>` writes what a repo with app code and no tests needs before
+Current starts a job on it: `scripts/gates.mjs`, `gates.config.json`, `checks.map.yml` (version 2) and `checks.kinds.yml`
+with `lint` and `typecheck` kinds only, the `lint`, `typecheck` and `gates` scripts and their devDependencies
+(`@dfox288/test-gates` 0.7.0, `@nuxt/eslint-config`, `eslint`, `typescript`, `vue-tsc`), `eslint.config.mjs` if the repo has
+none, `pnpm-workspace.yaml` (build-script decisions pnpm 11 needs), `.npmrc` (the `@dfox288` registry), `.tmp` in
+`.gitignore`, a "Tests" section in `README.md` and a `CLAUDE.md` if none. It never overwrites: a file it would create that
+exists is named and nothing is written. `--check` exits 0 when the repo meets that standard, else 1 with one line per miss;
+another `--stack` exits 2. Tests: `node --test test-presets/init/init.test.mjs`.
 
 ## Release and registry install
 

@@ -1,0 +1,9 @@
+# checks.kinds.yml (repo root): what each check kind is and what it needs (current-rules selection.md; which kinds a change runs
+# is checks.map.yml). Fenced: it decides how a check runs (testing-system.md).
+# Every kind is a gate, and its command is always `node scripts/gates.mjs --only=<kind>` (scripts/gates.mjs, which also does the
+# kind's setup). What the instance running them allows (images, services, time) is the instance's; a kind that asks for more is
+# refused. `describe` is all the spec writer reads of a kind.
+# No test kind yet: the first job that writes tests adds it, with its spec (D-499).
+kinds:
+  lint: { describe: 'ESLint over the repo' }
+  typecheck: { describe: 'nuxt typecheck' }

@@ -1,0 +1,6 @@
+# pnpm 11 reads its settings here, not from package.json.
+# pnpm blocks each dependency's build script until it is named here; an undecided one makes `pnpm install` itself exit 1
+# (ERR_PNPM_IGNORED_BUILDS).
+allowBuilds:
+  esbuild: true # load-bearing for Vite and Nuxt
+  unrs-resolver: false # native resolver behind eslint-plugin-import-x; the lint rules @nuxt/eslint-config enables do not use it
