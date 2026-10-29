@@ -9,7 +9,7 @@
     "gates": "test-gates"
   },
   "dependencies": {
-    "nuxt": "^4.5.1",
+    "nuxt": "^4.6.2",
     "vue": "^3.5.0"
   },
   "devDependencies": {
