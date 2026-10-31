@@ -17,7 +17,7 @@
     "@dfox288/test-preset-vitest": "file:../../vitest",
     "@nuxt/test-utils": "^4.3.2",
     "@vue/test-utils": "^2.5.1",
-    "happy-dom": "^20.11.1",
+    "happy-dom": "^21.0.4",
     "playwright": "1.60.0",
     "postgres": "3.4.9",
     "typescript": "~5.9.3",
