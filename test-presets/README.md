@@ -51,14 +51,27 @@ absent; `eslint.config.mjs` (`createConfigForNuxt` standalone, D-510) only when 
 `pnpm-workspace.yaml` if absent (the apps' release-age hold and the build-script decisions pnpm 11 needs); `.npmrc` (the
 `@dfox288` registry); `.tmp` in `.gitignore`; a "Tests and gates" section in `README.md`; a `CLAUDE.md` if none. It never
 overwrites: a file it would create that exists, or a `lint`/`typecheck`/`gates` script with another value, is named and
-nothing is written. It writes no lockfile (it does not install). The test kind comes with the first tests (the README
-section says how).
+nothing is written. A kept `pnpm-workspace.yaml` that does not decide the builds of `esbuild` and `unrs-resolver`, or lacks
+the release-age hold (`minimumReleaseAge`, `minimumReleaseAgeExclude: ['@dfox288/*']`, D-439), stops it the same way, with
+the lines to add. `package.json` is rewritten with the new keys after the ones there; its indentation, line endings and key
+order stay. The test kind comes with the first tests (the README section says how).
+
+**The lockfile comes next, from the entry step.** Init does not install and writes no `pnpm-lock.yaml`. Current's entry
+step makes it after init, with `pnpm install --lockfile-only` in Current's package container, never on the host; then it
+runs `--check` (D-500). Init's own run ends with `next: pnpm-lock.yaml ...` and exit 0 when the lockfile is the only miss.
 
 `--check` exits 0 when the repo meets that standard, else 1 with one line per miss: the files; `checks.kinds.yml` and
-`checks.map.yml` as Current reads them (version 2, every kind run by `always` or `paths`, no empty `kinds`); the gate script
-knows every kind (`--list`); for `lint` and `typecheck`, the gate in `gates.config.json` and the script it calls run eslint
-and `nuxt typecheck` or `vue-tsc` (a script that only exists is a miss); `@dfox288/test-gates`, the eslint config, the
-registry line, the README section and `CLAUDE.md`. After writing, init runs the check itself. Another `--stack` exits 2.
+`checks.map.yml` under Current's own rules for the two files (current `1699738`: the kinds file's keys and each kind's
+`cache`, `describe`, `image`, `services`, `localhostNames`, `dir`, `env` and `tools` values; the map's version 2 shape, every
+kind run by `always` or `paths`, `narrow`, `triggers` and `edges`; a duplicate key is a miss). Not checked: what the instance
+grants (which images, services and apt packages it allows) and whether a map glob matches a tracked file. The `lint` and
+`typecheck` kinds are there (D-499); the gate script knows every kind (`--list`); for `lint` and `typecheck`, the gate in
+`gates.config.json` and the script it calls run eslint and `nuxt typecheck` or `vue-tsc` (a script that only exists is a
+miss); the dependencies `@dfox288/test-gates`, `eslint`, `typescript`, `vue-tsc`, and `@nuxt/eslint-config` when the eslint
+config imports it; the eslint config; `pnpm-workspace.yaml` with the builds decided (a build the lockfile does not have needs
+no decision) and the release-age hold; a `pnpm-lock.yaml` whose root importer has every dependency of `package.json` with
+its specifier, and the workspace file's overrides (read from the file, no install); the registry line, the README section
+and `CLAUDE.md`. After writing, init runs the check itself. Another `--stack` exits 2.
 Tests: `node --test test-presets/init/init.test.mjs`.
 
 **A new repo installs the presets at a release with no repin:** run init from a checkout at the release tag, which pins

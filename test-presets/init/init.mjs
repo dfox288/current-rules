@@ -5,10 +5,14 @@
 //   node init.mjs --stack nuxt --dir <repo> --check    exit 0 when the repo meets the entry standard, else 1, one line per miss
 //   another --stack                                    exit 2, "no init for stack <x> yet"
 //
-// The entry standard: the gate script, checks.map.yml (version 2) and checks.kinds.yml with lint and typecheck kinds only (no
-// test kind), the package.json scripts and devDependencies those two kinds need (the lint and typecheck gates and scripts
-// run eslint and nuxt typecheck or vue-tsc, not just exist), a lint config, README and CLAUDE.md.
-// Node built-ins only. It never overwrites a file: a file it would create that exists is named and nothing is written.
+// The entry standard: the gate script, checks.map.yml (version 2) and checks.kinds.yml with the lint and typecheck kinds
+// (D-499; more kinds may follow, no test kind is needed), both files under Current's own rules; the package.json scripts and
+// dependencies those kinds need (their gates and scripts run eslint and nuxt typecheck or vue-tsc, not just exist); a lint
+// config; a pnpm-workspace.yaml that decides the builds and holds the release age (D-439); a pnpm-lock.yaml that covers
+// package.json; the registry line, README and CLAUDE.md.
+// Node built-ins only. It never overwrites a file: a file it would create that exists is named and nothing is written. It
+// rewrites package.json with its new keys added after the ones there (indentation, line endings and key order kept).
+// It writes no lockfile: the entry step makes pnpm-lock.yaml next (D-500), and --check is red until it covers package.json.
 // Run it from a checkout of current-rules at a release tag: it pins @dfox288/test-gates to that release (PRESETS_VERSION).
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -108,6 +112,7 @@ function flow(text) {
         const key = token(':')
         if (text[i] !== ':') throw new Error('flow mapping: missing ":"')
         i++
+        if (Object.hasOwn(out, key)) throw new Error(`Map keys must be unique ("${String(key).slice(0, 40)}")`)
         out[key] = value()
         ws()
         if (text[i] === ',') i++
@@ -161,6 +166,20 @@ export function parseYaml(text) {
     if (body.trim() === '') continue
     const indent = body.length - body.trimStart().length
     body = body.trim()
+    // a block scalar (`key: >-`, `- |`): its more-indented lines become one quoted value
+    const blockScalar = /^(.*?:|-)\s+([|>])([+-]?)$/.exec(body)
+    if (blockScalar && (blockScalar[1] === '-' || KEY.test(blockScalar[1]))) {
+      const content = []
+      while (n + 1 < raw.length && (raw[n + 1].trim() === '' || raw[n + 1].length - raw[n + 1].trimStart().length > indent)) content.push(raw[++n])
+      let trailing = 0
+      while (content.length > 0 && content[content.length - 1].trim() === '') content.pop(), trailing++
+      const cut = Math.min(...content.filter((l) => l.trim() !== '').map((l) => l.length - l.trimStart().length))
+      const texts = content.map((l) => (l.trim() === '' ? '' : l.slice(cut).trimEnd()))
+      let value = blockScalar[2] === '|' ? texts.join('\n') : texts.reduce((acc, l, k) => (k === 0 ? l : l === '' ? acc + '\n' : acc.endsWith('\n') ? acc + l : acc + ' ' + l), '')
+      if (content.length > 0 && blockScalar[3] !== '-') value += '\n' + (blockScalar[3] === '+' ? '\n'.repeat(trailing) : '')
+      lines.push({ indent, text: `${blockScalar[1]} ${JSON.stringify(value)}` })
+      continue
+    }
     // a flow value that continues on the next lines
     while (flowDepth(body) > 0 && n + 1 < raw.length) body += ' ' + stripComment(raw[++n]).trim()
     lines.push({ indent, text: body })
@@ -179,6 +198,7 @@ export function parseYaml(text) {
       const m = KEY.exec(lines[pos].text)
       if (!m) throw new Error(`cannot read "${lines[pos].text.slice(0, 40)}"`)
       const key = scalar(m[1])
+      if (Object.hasOwn(out, key)) throw new Error(`Map keys must be unique ("${String(key).slice(0, 40)}")`)
       pos++
       if (m[2] !== undefined && m[2] !== '' && !/^&\S+$/.test(m[2])) // a bare anchor (`&name`) opens a block; aliases are not read
         out[key] = inline(m[2])
@@ -211,58 +231,137 @@ export function parseYaml(text) {
   return result
 }
 
-// ---- the entry standard: the shape Current accepts (packages/shared checks-kinds.ts, checks-map.ts, core repo-kinds.ts) ----
+// ---- the entry standard: the rules Current applies to the two files (current 1699738: packages/shared/src/checks-kinds.ts
+// kindsFileProblems and checks-map.ts kindProblems and mapProblemsV2, ported as they are). Not checked here: what the instance
+// allows (images, services, apt names it grants, core/src/repo-kinds.ts) and whether a map glob matches a tracked file. ----
 
 const KIND_NAME = /^[a-z][a-z0-9-]{0,31}$/
 const KINDS_FILE_KEYS = ['kinds', 'gateStatuses']
-const KIND_KEYS = ['cache', 'describe', 'image', 'services', 'localhostNames', 'dir', 'env', 'tools']
+const KIND_KEYS = ['cache', 'describe', 'image', 'services', 'localhostNames', 'dir', 'env', 'paths', 'tools']
+const APT_NAME = /^[a-z0-9][a-z0-9+.-]{0,63}$/
+const SERVICE_NAME = /^[a-z][a-z0-9-]{0,31}$/
+const LOCALHOST = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*\.localhost$/
+const DIR = /^(\.|[A-Za-z0-9_][A-Za-z0-9._-]*(\/[A-Za-z0-9_][A-Za-z0-9._-]*)*)$/
+const ENV_NAME = /^[A-Z][A-Z0-9_]{0,63}$/
+const ENV_RESERVED = new RegExp(
+  '^(CURRENT_|pnpm_config_|npm_config_|NPM_CONFIG_|PNPM_CONFIG_|LD_|DOCKER_|GIT_|XDG_|PYTHON)' +
+    '|^(PATH|HOME|USER|SHELL|ENV|BASH_ENV|NODE_OPTIONS|NODE_PATH|NODE_EXTRA_CA_CERTS|NODE_TLS_REJECT_UNAUTHORIZED|PNPM_HOME|TMPDIR|IFS|PS4|HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY|FTP_PROXY)$',
+)
+const ENV_SECRETISH = /(TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE|API_?KEY|AUTH)/
 const MAP_KEYS = ['version', 'always', 'notest', 'kinds']
 const MAP_KIND_KEYS = ['paths', 'tests', 'narrow', 'triggers', 'edges']
+const NARROW_STEPS = ['vitest-related']
+const CATCH_ALL = /^\/?\*{1,2}$/
 const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v)
+const isStringList = (v) => Array.isArray(v) && v.every((s) => typeof s === 'string' && s !== '')
+const short = (name) => String(name).slice(0, 40)
 
-/** The problems Current's reader finds in a parsed checks.kinds.yml (shapes only); empty when it accepts the file. */
-export function kindsProblems(parsed) {
-  if (!isObject(parsed)) return ['checks.kinds.yml is not a mapping']
+/** The problems of one kind's body, as Current's kindProblems words them. */
+function kindProblems(name, body) {
   const out = []
-  for (const key of Object.keys(parsed)) if (!KINDS_FILE_KEYS.includes(key)) out.push(`checks.kinds.yml: unknown top-level key "${key}"`)
-  if (!isObject(parsed.kinds)) return [...out, 'checks.kinds.yml: kinds is not a mapping']
-  if (Object.keys(parsed.kinds).length === 0) out.push('checks.kinds.yml: kinds names no kind')
-  if ('gateStatuses' in parsed && typeof parsed.gateStatuses !== 'boolean') out.push('checks.kinds.yml: gateStatuses is not true or false')
-  for (const [name, body] of Object.entries(parsed.kinds)) {
-    if (!KIND_NAME.test(name)) out.push(`checks.kinds.yml: kind "${name}" is not a short lowercase name`)
-    if (!isObject(body)) {
-      out.push(`checks.kinds.yml: kind "${name}" is not a mapping`)
-      continue
+  const at = `kind "${name}"`
+  for (const key of Object.keys(body)) if (!KIND_KEYS.includes(key)) out.push(`${at} has unknown key "${key}"`)
+  if ('cache' in body && body.cache !== 'never') out.push(`${at}: cache is ${JSON.stringify(body.cache)}, only "never" exists`)
+  if ('describe' in body && (typeof body.describe !== 'string' || body.describe.trim() === '' || body.describe.length > 300)) out.push(`${at}: describe is not a text of 1 to 300 characters`)
+  if ('image' in body && (typeof body.image !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(body.image))) out.push(`${at}: image is not a catalog image name`)
+  if ('services' in body && !(Array.isArray(body.services) && body.services.length <= 8 && body.services.every((x) => typeof x === 'string' && SERVICE_NAME.test(x)))) out.push(`${at}: services is not a list of service names`)
+  if ('localhostNames' in body && !(Array.isArray(body.localhostNames) && body.localhostNames.length <= 8 && body.localhostNames.every((x) => typeof x === 'string' && LOCALHOST.test(x)))) out.push(`${at}: localhostNames is not a list of *.localhost names`)
+  if ('dir' in body && !(typeof body.dir === 'string' && DIR.test(body.dir))) out.push(`${at}: dir is not a repo-relative directory`)
+  if ('tools' in body) {
+    if (!isObject(body.tools)) out.push(`${at}: tools is not a mapping`)
+    else {
+      for (const key of Object.keys(body.tools)) if (key !== 'apt') out.push(`${at}: tools has unknown key "${short(key)}"`)
+      const apt = body.tools.apt
+      if ('apt' in body.tools && !(Array.isArray(apt) && apt.length <= 24 && apt.every((x) => typeof x === 'string' && APT_NAME.test(x)))) out.push(`${at}: tools.apt is not a list of package names`)
     }
-    if ('paths' in body) out.push(`checks.kinds.yml: kind "${name}": paths belongs in checks.map.yml, not here`)
-    for (const key of Object.keys(body)) if (key !== 'paths' && !KIND_KEYS.includes(key)) out.push(`checks.kinds.yml: kind "${name}" has unknown key "${key}"`)
-    if ('describe' in body && (typeof body.describe !== 'string' || body.describe.trim() === '' || body.describe.length > 300))
-      out.push(`checks.kinds.yml: kind "${name}": describe is not a text of 1 to 300 characters`)
+  }
+  if ('paths' in body && typeof body.paths !== 'boolean') out.push(`${at}: paths is not true or false`)
+  if ('env' in body) {
+    if (!isObject(body.env) || Object.keys(body.env).length > 16) out.push(`${at}: env is not a mapping of at most 16 variables`)
+    else
+      for (const [k, v] of Object.entries(body.env)) {
+        if (!ENV_NAME.test(k)) out.push(`${at}: env name "${short(k)}" is not UPPER_SNAKE_CASE`)
+        else if (ENV_RESERVED.test(k)) out.push(`${at}: env name ${k} is Current's or the container's own`)
+        else if (ENV_SECRETISH.test(k)) out.push(`${at}: env name ${k} looks like a secret; a kind's env is non-secret`)
+        // eslint-disable-next-line no-control-regex
+        if (typeof v !== 'string' || v.length > 200 || /[\u0000-\u001f]/.test(v)) out.push(`${at}: env ${k} is not a short text`)
+      }
   }
   return out
 }
 
-/** The problems with a parsed version 2 checks.map.yml against the kind names of checks.kinds.yml (shapes; globs are not matched against files). */
+/** The problems Current's reader finds in a parsed checks.kinds.yml; empty when it accepts the file. */
+export function kindsProblems(parsed) {
+  if (!isObject(parsed)) return ['checks.kinds.yml is not a mapping']
+  const out = []
+  for (const key of Object.keys(parsed)) if (!KINDS_FILE_KEYS.includes(key)) out.push(`unknown top-level key "${short(key)}"`)
+  if (!isObject(parsed.kinds)) return [...out, 'kinds is not a mapping'].map((p) => `checks.kinds.yml: ${p}`)
+  if (Object.keys(parsed.kinds).length === 0) out.push('kinds names no kind')
+  if ('gateStatuses' in parsed && typeof parsed.gateStatuses !== 'boolean') out.push('gateStatuses is not true or false')
+  for (const [name, body] of Object.entries(parsed.kinds)) {
+    if (!KIND_NAME.test(name)) out.push(`kind "${short(name)}" is not a short lowercase name`)
+    if (!isObject(body)) out.push(`kind "${short(name)}" is not a mapping`)
+    else if ('paths' in body) out.push(`kind "${short(name)}": paths belongs in checks.map.yml (its globs), not here`)
+    else out.push(...kindProblems(name, body))
+  }
+  return out.map((p) => `checks.kinds.yml: ${p}`)
+}
+
+/** The problems Current finds in a parsed version 2 checks.map.yml against the kind names of checks.kinds.yml (globs are not matched against files). */
 export function mapProblems(parsed, kindNames) {
   if (!isObject(parsed)) return ['checks.map.yml is not a mapping']
   const out = []
-  if (parsed.version !== 2) out.push(`checks.map.yml: version is ${JSON.stringify(parsed.version)}, not 2`)
-  for (const key of Object.keys(parsed)) if (!MAP_KEYS.includes(key)) out.push(`checks.map.yml: unknown top-level key "${key}"`)
-  if (!isObject(parsed.kinds)) out.push('checks.map.yml: kinds is not a mapping')
-  const always = Array.isArray(parsed.always) ? parsed.always : parsed.always === undefined ? [] : null
-  if (always === null) out.push('checks.map.yml: always is not a list')
-  for (const entry of always ?? []) if (typeof entry !== 'string' || !kindNames.includes(entry)) out.push(`checks.map.yml: always entry ${JSON.stringify(entry)} is not a kind of checks.kinds.yml`)
-  const mapKinds = isObject(parsed.kinds) ? parsed.kinds : {}
-  for (const [name, body] of Object.entries(mapKinds)) {
-    if (!kindNames.includes(name)) out.push(`checks.map.yml: kind "${name}" is missing from checks.kinds.yml`)
-    if (!isObject(body)) out.push(`checks.map.yml: kind "${name}" is not a mapping`)
-    else for (const key of Object.keys(body)) if (!MAP_KIND_KEYS.includes(key)) out.push(`checks.map.yml: kind "${name}" has unknown key "${key}"`)
+  if (parsed.version !== 2) out.push(`version is ${JSON.stringify(parsed.version)}, not 2`)
+  for (const key of Object.keys(parsed)) if (!MAP_KEYS.includes(key)) out.push(`unknown top-level key "${short(key)}"`)
+  if (!('kinds' in parsed)) out.push('missing top-level key "kinds"')
+  const globs = (at, list, optional = false) => {
+    if (list === undefined && optional) return []
+    if (!isStringList(list)) return out.push(`${at} is not a list of globs`), []
+    for (const pattern of list) if (CATCH_ALL.test(pattern)) out.push(`${at}: "${pattern}" is a catch-all; a file nothing matches already runs everything`)
+    return list
   }
-  for (const name of kindNames) {
-    const paths = isObject(mapKinds[name]) ? mapKinds[name].paths : undefined
-    if (!(always ?? []).includes(name) && !(Array.isArray(paths) && paths.length > 0)) out.push(`checks.map.yml: kind "${name}" has neither always nor paths`)
+  let always = []
+  if ('always' in parsed && !Array.isArray(parsed.always)) out.push('always is not a list')
+  else if (Array.isArray(parsed.always)) {
+    always = parsed.always.filter((e) => typeof e === 'string')
+    for (const entry of parsed.always) if (typeof entry !== 'string' || !kindNames.includes(entry)) out.push(`always entry ${JSON.stringify(entry)} is not a kind of checks.kinds.yml`)
   }
-  return out
+  globs('notest', parsed.notest, true)
+  const kinds = isObject(parsed.kinds) ? parsed.kinds : {}
+  if ('kinds' in parsed && !isObject(parsed.kinds)) out.push('kinds is not a mapping')
+  for (const [name, body] of Object.entries(kinds)) {
+    const at = `kind "${short(name)}"`
+    if (!KIND_NAME.test(name)) out.push(`${at} is not a short lowercase name`)
+    if (!kindNames.includes(name)) out.push(`${at} is missing from checks.kinds.yml`)
+    if (!isObject(body)) {
+      out.push(`${at} is not a mapping`)
+      continue
+    }
+    for (const key of Object.keys(body)) if (!MAP_KIND_KEYS.includes(key)) out.push(`${at} has unknown key "${short(key)}"`)
+    globs(`${at}: paths`, body.paths, true)
+    globs(`${at}: tests`, body.tests, true)
+    if ('narrow' in body && !NARROW_STEPS.includes(body.narrow)) out.push(`${at}: narrow ${JSON.stringify(body.narrow)?.slice(0, 40)} is not a known step (${NARROW_STEPS.join(', ')})`)
+    if (!('narrow' in body)) {
+      if ('triggers' in body) out.push(`${at}: triggers on a kind without narrow`)
+      if ('edges' in body) out.push(`${at}: edges on a kind without narrow`)
+    }
+    globs(`${at}: triggers`, body.triggers, true)
+    if ('edges' in body) {
+      if (!Array.isArray(body.edges)) out.push(`${at}: edges is not a list`)
+      else
+        body.edges.forEach((edge, i) => {
+          const here = `${at}: edge ${i + 1}`
+          if (!isObject(edge)) return void out.push(`${here} is not a mapping`)
+          for (const key of Object.keys(edge)) if (key !== 'paths' && key !== 'tests') out.push(`${here} has unknown key "${short(key)}"`)
+          globs(`${here}: paths`, edge.paths)
+          globs(`${here}: tests`, edge.tests)
+        })
+    }
+  }
+  // Current: a declared kind with neither always nor an entry of its own in the map's kinds
+  for (const name of kindNames) if (!Object.hasOwn(kinds, name) && !always.includes(name)) out.push(`kind "${short(name)}" has neither always nor paths`)
+  for (const [name, body] of Object.entries(kinds)) if (isObject(body) && !(isStringList(body.paths) && body.paths.length > 0) && !always.includes(name)) out.push(`kind "${short(name)}" has neither always nor paths`)
+  return out.map((p) => `checks.map.yml: ${p}`)
 }
 
 /**
@@ -300,6 +399,83 @@ function readJson(path) {
   }
 }
 
+/** The tools the two kinds run, which must be in package.json (an offline install has nothing else). */
+const KIND_DEPENDENCIES = { lint: ['eslint'], typecheck: ['typescript', 'vue-tsc'] }
+/** Builds a Nuxt repo with init's devDependencies has, which pnpm 11+ stops `pnpm install` on until the workspace file decides them. */
+const BUILDS = ['esbuild', 'unrs-resolver']
+/** The release-age hold (D-439), and the scope that skips it. */
+const HOLD_EXCLUDE = '@dfox288/*'
+
+/**
+ * The problems with a pnpm-workspace.yaml for the entry: every build in BUILDS decided (allowBuilds, or the older
+ * onlyBuiltDependencies / ignoredBuiltDependencies / neverBuiltDependencies lists), and the release-age hold. Each is
+ * { miss, fix }, fix being the line to add. A build absent from the lockfile, when there is one, needs no decision.
+ */
+export function workspaceProblems(text, lockText) {
+  let ws
+  try {
+    ws = parseYaml(text) ?? {}
+  } catch (error) {
+    return [{ miss: `pnpm-workspace.yaml: init's reader cannot read it (${error.message}); its builds and release-age hold are unchecked` }]
+  }
+  if (!isObject(ws)) return [{ miss: 'pnpm-workspace.yaml is not a mapping' }]
+  const out = []
+  if (ws.dangerouslyAllowAllBuilds !== true) {
+    const decided = new Set([
+      ...(isObject(ws.allowBuilds) ? Object.keys(ws.allowBuilds) : []),
+      ...['onlyBuiltDependencies', 'ignoredBuiltDependencies', 'neverBuiltDependencies'].flatMap((key) => (Array.isArray(ws[key]) ? ws[key].filter((x) => typeof x === 'string') : [])),
+    ])
+    const inTree = (name) => lockText === undefined || new RegExp(`^\\s+'?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}@`, 'm').test(lockText)
+    const template = parseYaml(readFileSync(join(TEMPLATES, 'pnpm-workspace.yaml'), 'utf8')).allowBuilds
+    for (const name of BUILDS)
+      if (!decided.has(name) && inTree(name))
+        out.push({ miss: `pnpm-workspace.yaml does not decide the build of ${name} (pnpm install exits 1, ERR_PNPM_IGNORED_BUILDS)`, fix: `allowBuilds:\n  ${name}: ${template[name]}` })
+  }
+  if (!(typeof ws.minimumReleaseAge === 'number' && ws.minimumReleaseAge > 0)) out.push({ miss: 'pnpm-workspace.yaml has no minimumReleaseAge (the release-age hold, D-439)', fix: 'minimumReleaseAge: 1440' })
+  if (!(Array.isArray(ws.minimumReleaseAgeExclude) && ws.minimumReleaseAgeExclude.includes(HOLD_EXCLUDE)))
+    out.push({ miss: `pnpm-workspace.yaml: minimumReleaseAgeExclude does not list '${HOLD_EXCLUDE}' (our scope skips the hold, D-439)`, fix: `minimumReleaseAgeExclude:\n  - '${HOLD_EXCLUDE}'` })
+  return out
+}
+
+/**
+ * Whether pnpm-lock.yaml covers package.json, read statically (no install): the root importer (`.`) lists each dependency,
+ * devDependency and optionalDependency with package.json's specifier (or the workspace file's override for that name), and
+ * the lockfile's overrides are the workspace file's. Returns the misses.
+ */
+export function lockfileProblems(lockText, pkg, overrides = {}) {
+  const importer = {}
+  let lockOverrides
+  try {
+    for (const doc of lockText.replace(/\r\n/g, '\n').split(/^---[ \t]*$/m)) {
+      const lines = doc.split('\n')
+      const section = (key) => {
+        const i = lines.indexOf(`${key}:`)
+        if (i < 0) return undefined
+        let j = i + 1
+        while (j < lines.length && (lines[j] === '' || /^\s/.test(lines[j]))) j++
+        return parseYaml(lines.slice(i, j).join('\n'))[key]
+      }
+      const root = section('importers')?.['.']
+      for (const field of ['dependencies', 'devDependencies', 'optionalDependencies']) if (isObject(root?.[field])) Object.assign(importer, root[field])
+      lockOverrides ??= section('overrides')
+    }
+  } catch (error) {
+    return [`pnpm-lock.yaml does not parse: ${error.message}`]
+  }
+  const stale = []
+  for (const field of ['dependencies', 'devDependencies', 'optionalDependencies'])
+    for (const [name, spec] of Object.entries(isObject(pkg[field]) ? pkg[field] : {})) {
+      const locked = importer[name]?.specifier
+      if (locked !== spec && !(Object.hasOwn(overrides, name) && locked === overrides[name])) stale.push(name)
+    }
+  const out = stale.length > 0 ? [`pnpm-lock.yaml does not cover ${stale.join(', ')} (the entry step makes it again, D-500)`] : []
+  if (JSON.stringify(Object.entries(overrides ?? {}).sort()) !== JSON.stringify(Object.entries(lockOverrides ?? {}).sort())) out.push("pnpm-lock.yaml: its overrides are not pnpm-workspace.yaml's (the entry step makes it again, D-500)")
+  return out
+}
+
+/** The miss when there is no lockfile; init's own run ends at it with exit 0, the entry step makes the lockfile next. */
+export const NO_LOCKFILE = 'missing: pnpm-lock.yaml (the entry step makes it with pnpm install --lockfile-only, D-500)'
+
 /** One line per miss; empty when the repo meets the entry standard. */
 export function check(dir) {
   const misses = []
@@ -329,12 +505,17 @@ export function check(dir) {
     }
   }
 
+  // the entry standard's two kinds (D-499: a test-less repo enters with exactly these, and possibly more)
+  for (const kind of Object.keys(TOOLS)) if (!kindNames.includes(kind)) misses.push(`checks.kinds.yml: no kind ${kind} (the entry has the lint and typecheck kinds, D-499)`)
+
   let scripts = {}
   let deps = {}
+  let pkgValue
   if (need('package.json')) {
     const pkg = readJson(at('package.json'))
     if (pkg.error) misses.push(`package.json does not parse: ${pkg.error}`)
     else {
+      pkgValue = pkg.value
       scripts = pkg.value.scripts ?? {}
       deps = { ...pkg.value.dependencies, ...pkg.value.devDependencies }
     }
@@ -352,8 +533,8 @@ export function check(dir) {
   // lint and typecheck run what their names say, all the way down: the kind's gate in gates.config.json, and the package.json
   // script that gate calls (`pnpm <script>`), run the kind's tool. A script that only exists (`lint: echo hi`) is a miss.
   for (const kind of Object.keys(TOOLS)) {
-    if (!kindNames.includes(kind)) continue
     const { runs, tool } = TOOLS[kind]
+    for (const name of KIND_DEPENDENCIES[kind]) if (!deps[name]) misses.push(`package.json: dependency ${name} is missing (kind ${kind} runs it; the offline install has nothing else)`)
     if (typeof scripts[kind] !== 'string') misses.push(`package.json: script "${kind}" is missing (kind ${kind})`)
     else if (!commandsOf(scripts[kind]).some(runs)) misses.push(`package.json: script "${kind}" is "${scripts[kind]}", which does not run ${tool} (kind ${kind})`)
     if (gateCommands === undefined) continue
@@ -367,7 +548,26 @@ export function check(dir) {
     const line = viaScript ? scripts[script] : argv.join(' ')
     if (!commandsOf(line).some(runs)) misses.push(`gates.config.json: gate "${kind}" runs "${argv.join(' ')}"${viaScript ? ` ("${line}")` : ''}, which does not run ${tool}`)
   }
-  if (kindNames.includes('lint') && !ESLINT_CONFIGS.some((f) => existsSync(at(f)))) misses.push('missing: eslint.config.* (kind lint)')
+  const eslintConfig = ESLINT_CONFIGS.find((f) => existsSync(at(f)))
+  if (!eslintConfig) misses.push('missing: eslint.config.* (kind lint)')
+  else if (readFileSync(at(eslintConfig), 'utf8').includes('@nuxt/eslint-config') && !deps['@nuxt/eslint-config']) misses.push(`package.json: dependency @nuxt/eslint-config is missing (${eslintConfig} imports it)`)
+
+  // the install Current's dependency image runs: pnpm install --offline --frozen-lockfile, on the base's files
+  let lockText
+  if (existsSync(at('pnpm-lock.yaml'))) lockText = readFileSync(at('pnpm-lock.yaml'), 'utf8')
+  let overrides = {}
+  if (need('pnpm-workspace.yaml')) {
+    const text = readFileSync(at('pnpm-workspace.yaml'), 'utf8')
+    misses.push(...workspaceProblems(text, lockText).map((p) => p.miss))
+    try {
+      const ws = parseYaml(text)
+      if (isObject(ws?.overrides)) overrides = ws.overrides
+    } catch {
+      // named by workspaceProblems
+    }
+  }
+  if (lockText === undefined) misses.push(NO_LOCKFILE)
+  else if (pkgValue) misses.push(...lockfileProblems(lockText, pkgValue, overrides))
 
   if (need('scripts/gates.mjs') && kindNames.length > 0) {
     // the gate script must know every kind the repo declares: `--list` prints the names
@@ -406,6 +606,11 @@ export function init(dir) {
   const pkg = JSON.parse(pkgText)
   for (const [name, command] of Object.entries(SCRIPTS))
     if (pkg.scripts?.[name] !== undefined && pkg.scripts[name] !== command) conflicts.push(`package.json script "${name}" is "${pkg.scripts[name]}", init needs "${command}"`)
+  // a kept pnpm-workspace.yaml must already decide the builds and hold the release age: init does not edit it
+  // (no lockfile passed: the one there is made again after init, with init's devDependencies in it)
+  if (existsSync(join(dir, 'pnpm-workspace.yaml')))
+    for (const { miss, fix } of workspaceProblems(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')))
+      conflicts.push(fix ? `${miss}; add:\n${fix.replace(/^/gm, '    ')}` : miss)
   if (conflicts.length > 0) return { lines: [], conflicts }
 
   const lines = []
@@ -417,8 +622,10 @@ export function init(dir) {
 
   for (const [path, name] of NEW_FILES) write(path, template(name))
 
-  // package.json: scripts and devDependencies added, nothing existing changed
-  const indent = /^\{\n(\s+)"/.exec(pkgText)?.[1] ?? '  '
+  // package.json: scripts and devDependencies added after the ones there, nothing existing changed or moved; its
+  // indentation, line endings and final newline kept
+  const crlf = pkgText.includes('\r\n')
+  const indent = /^\{\r?\n([ \t]+)"/.exec(pkgText)?.[1] ?? '  '
   pkg.scripts = { ...pkg.scripts }
   const added = []
   for (const [name, command] of Object.entries(SCRIPTS)) if (pkg.scripts[name] === undefined) (pkg.scripts[name] = command), added.push(`script ${name}`)
@@ -428,22 +635,19 @@ export function init(dir) {
   const ownEslintConfig = ESLINT_CONFIGS.some((f) => existsSync(join(dir, f)))
   for (const [name, version] of Object.entries(DEV_DEPENDENCIES))
     if (present[name] === undefined && !(ownEslintConfig && name === '@nuxt/eslint-config')) (pkg.devDependencies[name] = version), added.push(name)
-  pkg.devDependencies = Object.fromEntries(Object.entries(pkg.devDependencies).sort(([a], [b]) => a.localeCompare(b)))
   if (pkg.packageManager === undefined) (pkg.packageManager = PACKAGE_MANAGER), added.push(`packageManager ${PACKAGE_MANAGER}`)
   if (pkg.engines?.node === undefined) (pkg.engines = { ...pkg.engines, node: NODE_ENGINE }), added.push(`engines.node ${NODE_ENGINE}`)
-  writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg, null, indent) + '\n')
+  const json = JSON.stringify(pkg, null, indent) + (/\n$/.test(pkgText) ? '\n' : '')
+  writeFileSync(join(dir, 'package.json'), crlf ? json.replace(/\n/g, '\r\n') : json)
   lines.push(`updated package.json (${added.length ? 'added ' + added.join(', ') : 'nothing to add'})`)
 
   // a lint config, if the repo has none
   if (ownEslintConfig) lines.push('kept its own eslint.config.*')
   else write('eslint.config.mjs', template('eslint.config.mjs'))
 
-  // pnpm 11 stops `pnpm install` on a dependency build script nobody decided on
-  if (existsSync(join(dir, 'pnpm-workspace.yaml'))) {
-    const text = readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')
-    const undecided = ['esbuild', 'unrs-resolver'].filter((name) => !new RegExp(`^\\s+['"]?${name}['"]?:`, 'm').test(text))
-    lines.push(`kept its own pnpm-workspace.yaml${undecided.length ? ` (its allowBuilds must decide ${undecided.join(' and ')}, or pnpm install exits 1)` : ''}`)
-  } else write('pnpm-workspace.yaml', template('pnpm-workspace.yaml'))
+  // pnpm 11 stops `pnpm install` on a dependency build script nobody decided on; a kept file was checked above
+  if (existsSync(join(dir, 'pnpm-workspace.yaml'))) lines.push('kept its own pnpm-workspace.yaml')
+  else write('pnpm-workspace.yaml', template('pnpm-workspace.yaml'))
 
   // the registry scope for @dfox288
   const npmrc = join(dir, '.npmrc')
@@ -524,10 +728,14 @@ function main(argv) {
     console.error('init: nothing written')
     return 1
   }
-  // its own check, on what it just wrote
+  // its own check, on what it just wrote. The lockfile is the entry step's, next (D-500): init does not install, so a
+  // missing or stale lockfile is the one miss its own run expects; --check stays red on it until the entry step made it.
   const misses = check(dir)
-  for (const miss of misses) console.error(`init: check: ${miss}`)
-  return misses.length === 0 ? 0 : 1
+  const lockfile = (miss) => miss === NO_LOCKFILE || miss.startsWith('pnpm-lock.yaml')
+  for (const miss of misses) if (!lockfile(miss)) console.error(`init: check: ${miss}`)
+  if (misses.some((m) => !lockfile(m))) return 1
+  if (misses.length > 0) console.log('next: pnpm-lock.yaml, made by the entry step (pnpm install --lockfile-only in Current\'s package container, D-500); then --check')
+  return 0
 }
 
 if (process.argv[1] && import.meta.filename === process.argv[1]) process.exitCode = main(process.argv.slice(2))
