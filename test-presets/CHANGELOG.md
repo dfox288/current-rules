@@ -6,7 +6,8 @@
 - `init/init.mjs`, after the re-review of #49 (horizon-surveyor#387):
   - `--check` requires `pnpm-lock.yaml` to be made for `package.json`'s `packageManager`: from pnpm 12 on, a pinned `pnpm@X.Y.Z` must be named in the lockfile's first document (`packageManagerDependencies`), else `pnpm install --frozen-lockfile` exits 1 (`ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE`). Read statically; a lockfile made before init added `packageManager` is now a miss, not green.
   - `--check` decides only the `esbuild` and `unrs-resolver` builds, and the header and README now say so: a build another dependency of the repo has (`better-sqlite3`, `sharp`) is the repo's to decide and a static check cannot see it. Current accepts the entry commit only by building the dependency image from it (horizon-surveyor#388), not on `--check` alone.
-  - The lines init gives for a kept `pnpm-workspace.yaml` go under `allowBuilds` or `minimumReleaseAgeExclude` when the file has that key (inside its braces for a flow mapping), never as a second key of the same name; both undecided builds come under one `allowBuilds` header.
+  - The lines init gives for a kept `pnpm-workspace.yaml` go under `allowBuilds` or `minimumReleaseAgeExclude` when the file has that key in block form (a quoted key too); for a flow `{ }` or `[ ]`, or a scalar, init gives the key with its whole new value to put in place of the old one. Never a second key of the same name; both undecided builds come under one `allowBuilds` header.
+  - Init's YAML reader refuses flow items with no comma between them (`['a' 'b']`, `{ a: true b: false }`), as pnpm and Current's `yaml` do; it read them as two items or one text before.
   - README, "Not checked": where init's YAML reader differs from Current's, and `package.json` formatting beyond indentation, line endings and key order.
 
 ## 0.7.0 (2026-10-12)

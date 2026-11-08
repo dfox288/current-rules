@@ -53,7 +53,8 @@ absent; `eslint.config.mjs` (`createConfigForNuxt` standalone, D-510) only when 
 overwrites: a file it would create that exists, or a `lint`/`typecheck`/`gates` script with another value, is named and
 nothing is written. A kept `pnpm-workspace.yaml` that does not decide the builds of `esbuild` and `unrs-resolver`, or lacks
 the release-age hold (`minimumReleaseAge`, `minimumReleaseAgeExclude: ['@dfox288/*']`, D-439), stops it the same way, with
-the lines to add (under the key when the file already has it, never a second key of the same name). `package.json` is
+the lines to add: under the key when the file already has it in block form (quoted or not), the key's whole new value
+when it is a flow `{ }` or `[ ]` or a scalar, so the lines never add a second key of the same name. `package.json` is
 rewritten with the new keys after the ones there; its indentation, line endings and key order stay, the rest of its
 formatting is `JSON.stringify`'s (an inline array or object comes out one entry per line, an escape such as `\u00e9` is
 decoded). The test kind comes with the first tests (the README section says how).

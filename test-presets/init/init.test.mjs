@@ -271,16 +271,38 @@ test('N7: a kept workspace file that has allowBuilds or minimumReleaseAgeExclude
   const dir = starter()
   try {
     const ws = join(dir, 'pnpm-workspace.yaml')
-    /** Applies each of init's fixes as printed (the lines after "add:" or "under <key>, add:", 4 columns in). */
+    /**
+     * Applies each of init's fixes as printed, the lines 4 columns in: "add:" appends them, "under <key>, add:" puts them
+     * after the key's line, "replace <key> …with:" and "set it to:" put them in place of the key's line and the lines that
+     * continue it (more indented).
+     */
     const apply = (text, stderr) => {
-      for (const [, how, , body] of stderr.matchAll(/; (add|under (\S+), add|set it to):\n((?: {4}.*\n?)+)/g)) {
+      for (const [, how, body] of stderr.matchAll(/; (add|under \S+, add|replace \S+(?: and its whole value)? with|set it to):\n((?: {4}.*\n?)+)/g)) {
         const lines = body.trimEnd().split('\n').map((l) => l.slice(4))
-        const key = how.startsWith('under ') ? how.slice('under '.length, -', add'.length) : undefined
+        const key = how.startsWith('under ') || how.startsWith('replace ') ? how.split(' ')[1].replace(/,$/, '') : how === 'set it to' ? lines[0].split(':')[0] : undefined
+        const head = new RegExp(`^(?:${key}|"${key}"|'${key}')[ \\t]*:.*\\n(?:[ \\t]+.*\\n|[}\\]].*\\n)*`, 'm')
         if (key === undefined) text = (text.endsWith('\n') ? text : text + '\n') + lines.join('\n') + '\n'
-        else text = text.replace(new RegExp(`^${key}:.*\\n`, 'm'), (head) => head + lines.join('\n') + '\n')
+        else if (how.startsWith('under ')) text = text.replace(new RegExp(`^(?:${key}|"${key}"|'${key}')[ \\t]*:.*\\n`, 'm'), (line) => line + lines.join('\n') + '\n')
+        else text = text.replace(head, lines.join('\n') + '\n')
       }
       return text
     }
+    /** Init on `kept` exits 1 and prints hints matching `patterns`; the file they make has each key once and init takes it. */
+    const fixedBy = (kept, patterns, expected) => {
+      writeFileSync(ws, kept)
+      const done = run('--stack', 'nuxt', '--dir', dir)
+      assert.equal(done.status, 1, done.stderr)
+      for (const pattern of patterns) assert.match(done.stderr, pattern)
+      const fixed = apply(kept, done.stderr)
+      for (const key of ['allowBuilds', 'minimumReleaseAge', 'minimumReleaseAgeExclude']) assert.ok((fixed.match(new RegExp(`^["']?${key}["']?\\s*:`, 'gm')) ?? []).length <= 1, fixed)
+      assert.deepEqual(parseYaml(fixed), expected, fixed)
+      writeFileSync(ws, fixed)
+      const again = run('--stack', 'nuxt', '--dir', dir)
+      assert.equal(again.status, 0, `the fixed file is accepted\n${fixed}\n${again.stderr}`)
+      rmSync(join(dir, 'scripts'), { recursive: true })
+      for (const f of ['gates.config.json', 'checks.map.yml', 'checks.kinds.yml']) rmSync(join(dir, f))
+    }
+    const both = { esbuild: true, 'unrs-resolver': false }
     // pnpm 11's likely case (the re-review's): allowBuilds there with esbuild, the hold's exclude list there without our scope
     const kept = "allowBuilds:\n    esbuild: true\nminimumReleaseAge: 1440\nminimumReleaseAgeExclude:\n  - 'other/*'\n"
     writeFileSync(ws, kept)
@@ -301,12 +323,41 @@ test('N7: a kept workspace file that has allowBuilds or minimumReleaseAgeExclude
     const empty = run('--stack', 'nuxt', '--dir', dir)
     assert.match(empty.stderr, /does not decide the builds of esbuild and unrs-resolver .*; under allowBuilds, add:\n {6}esbuild: true\n {6}unrs-resolver: false\n/)
     assert.match(empty.stderr, /no minimumReleaseAge .*; set it to:\n {4}minimumReleaseAge: 1440/)
-    // a flow mapping: the entries go inside its braces
-    writeFileSync(ws, "allowBuilds: { esbuild: true }\nminimumReleaseAge: 1440\nminimumReleaseAgeExclude: ['other/*']\n")
-    const flow = run('--stack', 'nuxt', '--dir', dir)
-    assert.match(flow.stderr, /; inside allowBuilds's \{ \}, add:\n {4}unrs-resolver: false\n/)
-    assert.match(flow.stderr, /; inside minimumReleaseAgeExclude's \[ \], add:\n {4}'@dfox288\/\*'/)
-    assert.doesNotMatch(flow.stderr, /\n {4}allowBuilds:/)
+
+    // S7: a flow mapping or list gets its whole new value, so no comma is left to the reader
+    fixedBy(
+      "allowBuilds: { esbuild: true }\nminimumReleaseAge: 1440\nminimumReleaseAgeExclude: ['other/*']\n",
+      [/; replace allowBuilds and its whole value with:\n {4}allowBuilds: \{ esbuild: true, unrs-resolver: false \}\n/, /; replace minimumReleaseAgeExclude and its whole value with:\n {4}minimumReleaseAgeExclude: \['other\/\*', '@dfox288\/\*'\]/],
+      { allowBuilds: both, minimumReleaseAge: 1440, minimumReleaseAgeExclude: ['other/*', '@dfox288/*'] },
+    )
+    // a flow mapping over several lines, with a trailing comma
+    fixedBy("allowBuilds: {\n  esbuild: true,\n}\nminimumReleaseAge: 1440\nminimumReleaseAgeExclude:\n  - '@dfox288/*'\n", [/; replace allowBuilds and its whole value with:\n {4}allowBuilds: \{ esbuild: true, unrs-resolver: false \}\n/], {
+      allowBuilds: both,
+      minimumReleaseAge: 1440,
+      minimumReleaseAgeExclude: ['@dfox288/*'],
+    })
+    // the reviewer's case: the old hint added as printed, with no comma; init's reader refuses it as pnpm does
+    writeFileSync(ws, "allowBuilds: { esbuild: true, unrs-resolver: false }\nminimumReleaseAge: 1440\nminimumReleaseAgeExclude: ['other/*' '@dfox288/*']\n")
+    const nocomma = run('--stack', 'nuxt', '--dir', dir)
+    assert.equal(nocomma.status, 1)
+    assert.match(nocomma.stderr, /init's reader cannot read it \(Missing , between flow sequence items\)/)
+    assert.throws(() => parseYaml("a: ['x' 'y']\n"), /Missing , between flow sequence items/)
+    assert.throws(() => parseYaml('a: { b: true c: false }\n'), /Missing , between flow items/)
+    assert.throws(() => parseYaml("a: { b: 'x' c: false }\n"), /Missing , between flow mapping items/)
+    assert.deepEqual(parseYaml("a: { b: 'x: y', c: [1, 2,] }\n"), { a: { b: 'x: y', c: [1, 2] } })
+
+    // N11: a scalar in place of the mapping or list: the key with its entries replaces it
+    fixedBy(
+      'allowBuilds: null\nminimumReleaseAge: 1440\nminimumReleaseAgeExclude: ~\n',
+      [/; replace allowBuilds with:\n {4}allowBuilds:\n {6}esbuild: true\n {6}unrs-resolver: false\n/, /; replace minimumReleaseAgeExclude with:\n {4}minimumReleaseAgeExclude:\n {6}- '@dfox288\/\*'/],
+      { allowBuilds: both, minimumReleaseAge: 1440, minimumReleaseAgeExclude: ['@dfox288/*'] },
+    )
+    // N12: a quoted key is the same key
+    fixedBy('"allowBuilds":\n  esbuild: true\n\'minimumReleaseAge\': 0\n"minimumReleaseAgeExclude": []\n', [/; under allowBuilds, add:\n {6}unrs-resolver: false\n/, /; set it to:\n {4}minimumReleaseAge: 1440/], {
+      allowBuilds: both,
+      minimumReleaseAge: 1440,
+      minimumReleaseAgeExclude: ['@dfox288/*'],
+    })
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -334,6 +385,7 @@ test('S5: a lockfile not made for package.json\'s packageManager (no environment
     const lockText = (pnpm) => (lock(dir, { pnpm }), readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8'))
     // a hash suffix is not part of the version pnpm writes; pnpm 11 and older, a range, or none ask for no document
     assert.deepEqual(lockfileProblems(lockText('12.8.1'), { ...pkg, packageManager: 'pnpm@12.8.1+sha512.abc' }), [])
+    assert.match(lockfileProblems(lockText(false), { ...pkg, packageManager: 'pnpm@12.8.1+sha512.abc' }).join('\n'), /^pnpm-lock\.yaml was not made for packageManager pnpm@12\.8\.1: it has no environment document/)
     for (const packageManager of ['pnpm@11.28.9', 'pnpm@10.20.0', 'pnpm@^12.8.1', 'yarn@4.0.0', undefined]) assert.deepEqual(lockfileProblems(lockText(false), { ...pkg, packageManager }), [], String(packageManager))
     assert.equal(pinnedPnpm('pnpm@12.0.0'), '12.0.0')
     assert.equal(pinnedPnpm('pnpm@11.0.0'), undefined)

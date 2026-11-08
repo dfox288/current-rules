@@ -119,7 +119,9 @@ function flow(text) {
         if (Object.hasOwn(out, key)) throw new Error(`Map keys must be unique ("${String(key).slice(0, 40)}")`)
         out[key] = value()
         ws()
+        if (i >= text.length) throw new Error('flow mapping: unclosed "{"')
         if (text[i] === ',') i++
+        else if (text[i] !== '}') throw new Error('Missing , between flow mapping items')
         ws()
         if (i >= text.length) throw new Error('flow mapping: unclosed "{"')
       }
@@ -133,14 +135,20 @@ function flow(text) {
       while (text[i] !== ']') {
         out.push(value())
         ws()
+        if (i >= text.length) throw new Error('flow list: unclosed "["')
         if (text[i] === ',') i++
+        else if (text[i] !== ']') throw new Error('Missing , between flow sequence items')
         ws()
         if (i >= text.length) throw new Error('flow list: unclosed "["')
       }
       i++
       return out
     }
-    return scalar(token(',}]'))
+    const quoted = text[i] === '"' || text[i] === "'"
+    const raw = token(',}]')
+    // a plain value that holds `key: value` is an item that lost its comma (`{ a: true b: false }`)
+    if (!quoted && /:\s/.test(raw)) throw new Error('Missing , between flow items (a plain value holds ": ")')
+    return scalar(raw)
   }
   const token = (stops) => {
     ws()
@@ -414,12 +422,13 @@ const BUILDS = ['esbuild', 'unrs-resolver']
 const HOLD_EXCLUDE = '@dfox288/*'
 
 /**
- * How a top-level key of the workspace file is written: 'absent'; 'block' (its entries on the next lines, `indent` being
- * theirs); 'flow' (`key: { … }` or `key: [ … ]`); or 'value' (a scalar on the key's line).
+ * How a top-level key of the workspace file is written (bare, or quoted as `"key":` or `'key':`): 'absent'; 'block' (its
+ * entries on the next lines, `indent` being theirs); 'flow' (`key: { … }` or `key: [ … ]`); or 'value' (a scalar on the
+ * key's line).
  */
 function keyForm(text, key) {
   const lines = text.split(/\r?\n/)
-  const head = new RegExp(`^${key}[ \\t]*:`)
+  const head = new RegExp(`^(?:${key}|"${key}"|'${key}')[ \\t]*:`)
   const i = lines.findIndex((l) => head.test(l))
   if (i < 0) return { form: 'absent' }
   const rest = stripComment(lines[i]).replace(head, '').trim()
@@ -430,14 +439,29 @@ function keyForm(text, key) {
   return { form: 'block', indent: lead !== '' || next?.trimStart().startsWith('-') ? lead : '  ' }
 }
 
-/** The lines that add `entries` to the top-level key `key` (a mapping, or a list when `list`), as `how:` and the lines. */
-function addTo(text, key, entries, list = false) {
+/** A value written as YAML on one line: strings single-quoted, a mapping's keys bare when they can be. */
+function flowText(value) {
+  if (Array.isArray(value)) return `[${value.map(flowText).join(', ')}]`
+  if (isObject(value)) return `{ ${Object.entries(value).map(([k, v]) => `${/^[A-Za-z0-9_][A-Za-z0-9._/-]*$/.test(k) ? k : flowText(k)}: ${flowText(v)}`).join(', ')} }`
+  return typeof value === 'string' ? `'${value.replace(/'/g, "''")}'` : String(value)
+}
+
+/**
+ * What to write so that the top-level key `key` also has `additions` (a mapping, or a list), as `how:` and the lines: under
+ * the key for a block, the key's whole new value for a flow collection (whatever its commas and lines were), the key with
+ * its entries when it is absent or a scalar.
+ */
+function addTo(text, key, current, additions) {
   const { form, indent } = keyForm(text, key)
-  const item = (e) => (list ? `- ${e}` : e)
+  const list = Array.isArray(additions)
+  const entries = list ? additions.map((e) => `- ${flowText(e)}`) : Object.entries(additions).map(([k, v]) => `${k}: ${flowText(v)}`)
   const lines = (how, body) => `${how}:\n${body.map((l) => `    ${l}`).join('\n')}`
-  if (form === 'block') return lines(`under ${key}, add`, entries.map((e) => indent + item(e)))
-  if (form === 'flow') return lines(`inside ${key}'s ${list ? '[ ]' : '{ }'}, add`, [entries.join(', ')])
-  return lines(form === 'value' ? `replace ${key} with` : 'add', [`${key}:`, ...entries.map((e) => `  ${item(e)}`)])
+  if (form === 'block') return lines(`under ${key}, add`, entries.map((e) => indent + e))
+  if (form === 'flow') {
+    const merged = list ? [...(Array.isArray(current) ? current : []), ...additions] : { ...(isObject(current) ? current : {}), ...additions }
+    return lines(`replace ${key} and its whole value with`, [`${key}: ${flowText(merged)}`])
+  }
+  return lines(form === 'value' ? `replace ${key} with` : 'add', [`${key}:`, ...entries.map((e) => `  ${e}`)])
 }
 
 /**
@@ -467,7 +491,7 @@ export function workspaceProblems(text, lockText) {
     if (undecided.length > 0)
       out.push({
         miss: `pnpm-workspace.yaml does not decide the build${undecided.length > 1 ? 's' : ''} of ${undecided.join(' and ')} (pnpm install exits 1, ERR_PNPM_IGNORED_BUILDS)`,
-        fix: addTo(text, 'allowBuilds', undecided.map((name) => `${name}: ${template[name]}`)),
+        fix: addTo(text, 'allowBuilds', ws.allowBuilds, Object.fromEntries(undecided.map((name) => [name, template[name]]))),
       })
   }
   if (!(typeof ws.minimumReleaseAge === 'number' && ws.minimumReleaseAge > 0))
@@ -476,7 +500,7 @@ export function workspaceProblems(text, lockText) {
       fix: `${keyForm(text, 'minimumReleaseAge').form === 'absent' ? 'add' : 'set it to'}:\n    minimumReleaseAge: 1440`,
     })
   if (!(Array.isArray(ws.minimumReleaseAgeExclude) && ws.minimumReleaseAgeExclude.includes(HOLD_EXCLUDE)))
-    out.push({ miss: `pnpm-workspace.yaml: minimumReleaseAgeExclude does not list '${HOLD_EXCLUDE}' (our scope skips the hold, D-439)`, fix: addTo(text, 'minimumReleaseAgeExclude', [`'${HOLD_EXCLUDE}'`], true) })
+    out.push({ miss: `pnpm-workspace.yaml: minimumReleaseAgeExclude does not list '${HOLD_EXCLUDE}' (our scope skips the hold, D-439)`, fix: addTo(text, 'minimumReleaseAgeExclude', ws.minimumReleaseAgeExclude, [HOLD_EXCLUDE]) })
   return out
 }
 
