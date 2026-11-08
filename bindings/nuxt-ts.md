@@ -24,7 +24,9 @@ reviewer checks them.)*
 
 Each repo installs the Vitest preset and the shared gate script from the public preset repo, as a git dependency
 pinned to a tag, and adds only its project list and its justified differences. Until a repo has migrated, its own scripts and README
-apply. Install syntax and the options are in `test-presets/README.md`.
+apply. Install syntax and the options are in `test-presets/README.md`. A repo with app code and no tests gets its entry
+files from `test-presets/init/init.mjs --stack nuxt` (lint and typecheck kinds only, no preset until its first tests;
+`test-presets/README.md`, "Init").
 
 The preset sets:
 

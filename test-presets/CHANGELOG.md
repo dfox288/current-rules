@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `init/init.mjs`: writes a Nuxt repo's entry files (lint and typecheck kinds, no test kind; `eslint.config.mjs` with `@nuxt/eslint-config` standalone only when the repo has none, D-510) and checks them; `--check` also requires the lint and typecheck gates and scripts to run eslint and `nuxt typecheck` or `vue-tsc`. It pins `@dfox288/test-gates` to its own checkout's version, so init run from a release tag needs no repin. `--check` applies Current's kinds-file and map rules (a duplicate key is a miss), requires the lint and typecheck kinds, the tools they run as dependencies, a `pnpm-workspace.yaml` that decides the `esbuild` and `unrs-resolver` builds and holds the release age (D-439), and a `pnpm-lock.yaml` that covers `package.json`; init writes no lockfile, the entry step makes it next (D-500). A kept workspace file that lacks a decision or the hold stops init with the lines to add. `package.json` keeps its indentation, line endings and key order. Not part of an npm package; run from a checkout. Refs horizon-surveyor#387, D-499.
+
 ## 0.7.0 (2026-10-12)
 
 Minor, not patch: horizon-surveyor#347 changes how the pytest plugin counts tests (a subtest is not a test), so an app's per-tier counts and floors can change at the repin. The vitest, gates and pytest packages all move to 0.7.0.

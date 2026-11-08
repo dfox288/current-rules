@@ -1,0 +1,8 @@
+{
+  "stack": "vitest",
+  "tiers": [],
+  "gates": {
+    "lint": ["pnpm", "lint"],
+    "typecheck": ["pnpm", "typecheck"]
+  }
+}

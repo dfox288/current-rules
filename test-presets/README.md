@@ -9,6 +9,7 @@ its justified differences.
 | `vitest/` | Vitest config builder, small's guards, count guard, DB helper, `e2e` build-once and browser helper | Nuxt / TypeScript |
 | `pytest/` | pytest plugin (markers, limits, guards, count guard) and DB helper | Python 3.14 |
 | `gates/` | the shared gate script, one set of gate names for both stacks | both |
+| `init/` | `init.mjs`: writes a Nuxt repo's entry files (gate script, lint and typecheck kinds, no test kind) and checks them | Nuxt / TypeScript |
 | `fixtures/` | a minimal Nuxt app and a minimal Python package that consume the presets, and `break-it.ts` | tests of the presets |
 
 ## Install
@@ -38,6 +39,50 @@ dfox288-test-preset = { git = "https://github.com/dfox288/current-rules", subdir
 pnpm fetches a GitHub dependency as a tarball (no `git` needed); uv runs `git`. The built JavaScript (`dist/`) is
 committed, because pnpm skips install scripts (`prepare`) here: after changing `vitest/src` or `gates/src` run
 `pnpm build` in that directory, and `pnpm check:dist` fails when `dist/` is stale.
+
+## Init (entry files)
+
+`node test-presets/init/init.mjs --stack nuxt --dir <repo>` writes what a Nuxt repo with app code and no tests needs before
+Current starts a job on it (D-499): `scripts/gates.mjs`, `gates.config.json` (no tiers), `checks.map.yml` (version 2) and
+`checks.kinds.yml` with `lint` and `typecheck` kinds only; the `lint` (`eslint .`), `typecheck` (`nuxt typecheck`) and
+`gates` scripts; the devDependencies `@dfox288/test-gates` (the version of this checkout's `gates/package.json`), `eslint`,
+`typescript`, `vue-tsc` and, with the config it writes, `@nuxt/eslint-config`; `packageManager` and `engines.node` when
+absent; `eslint.config.mjs` (`createConfigForNuxt` standalone, D-510) only when the repo has no `eslint.config.*`;
+`pnpm-workspace.yaml` if absent (the apps' release-age hold and the build-script decisions pnpm 11 needs); `.npmrc` (the
+`@dfox288` registry); `.tmp` in `.gitignore`; a "Tests and gates" section in `README.md`; a `CLAUDE.md` if none. It never
+overwrites: a file it would create that exists, or a `lint`/`typecheck`/`gates` script with another value, is named and
+nothing is written. A kept `pnpm-workspace.yaml` that does not decide the builds of `esbuild` and `unrs-resolver`, or lacks
+the release-age hold (`minimumReleaseAge`, `minimumReleaseAgeExclude: ['@dfox288/*']`, D-439), stops it the same way, with
+the lines to add. `package.json` is rewritten with the new keys after the ones there; its indentation, line endings and key
+order stay. The test kind comes with the first tests (the README section says how).
+
+**The lockfile comes next, from the entry step.** Init does not install and writes no `pnpm-lock.yaml`. Current's entry
+step makes it after init, with `pnpm install --lockfile-only` in Current's package container, never on the host; then it
+runs `--check` (D-500). Init's own run ends with `next: pnpm-lock.yaml ...` and exit 0 when the lockfile is the only miss.
+
+`--check` exits 0 when the repo meets that standard, else 1 with one line per miss: the files; `checks.kinds.yml` and
+`checks.map.yml` under Current's own rules for the two files (current `1699738`: the kinds file's keys and each kind's
+`cache`, `describe`, `image`, `services`, `localhostNames`, `dir`, `env` and `tools` values; the map's version 2 shape, every
+kind run by `always` or `paths`, `narrow`, `triggers` and `edges`; a duplicate key is a miss). Not checked: what the instance
+grants (which images, services and apt packages it allows) and whether a map glob matches a tracked file. The `lint` and
+`typecheck` kinds are there (D-499); the gate script knows every kind (`--list`); for `lint` and `typecheck`, the gate in
+`gates.config.json` and the script it calls run eslint and `nuxt typecheck` or `vue-tsc` (a script that only exists is a
+miss); the dependencies `@dfox288/test-gates`, `eslint`, `typescript`, `vue-tsc`, and `@nuxt/eslint-config` when the eslint
+config imports it; the eslint config; `pnpm-workspace.yaml` with the builds decided (a build the lockfile does not have needs
+no decision) and the release-age hold; a `pnpm-lock.yaml` whose root importer has every dependency of `package.json` with
+its specifier, and the workspace file's overrides (read from the file, no install); the registry line, the README section
+and `CLAUDE.md`. After writing, init runs the check itself. Another `--stack` exits 2.
+Tests: `node --test test-presets/init/init.test.mjs`.
+
+**A new repo installs the presets at a release with no repin:** run init from a checkout at the release tag, which pins
+`@dfox288/test-gates` to that tag's version, the one its release published:
+
+```sh
+git clone --depth 1 --branch test-presets-vX.Y.Z https://github.com/dfox288/current-rules /tmp/current-rules
+node /tmp/current-rules/test-presets/init/init.mjs --stack nuxt --dir <repo>
+```
+
+Init is not part of an npm package. A checkout of `main` between releases pins the version its `gates/package.json` has.
 
 ## Release and registry install
 
