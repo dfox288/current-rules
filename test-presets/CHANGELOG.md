@@ -3,6 +3,11 @@
 ## Unreleased
 
 - `init/init.mjs`: writes a Nuxt repo's entry files (lint and typecheck kinds, no test kind; `eslint.config.mjs` with `@nuxt/eslint-config` standalone only when the repo has none, D-510) and checks them; `--check` also requires the lint and typecheck gates and scripts to run eslint and `nuxt typecheck` or `vue-tsc`. It pins `@dfox288/test-gates` to its own checkout's version, so init run from a release tag needs no repin. `--check` applies Current's kinds-file and map rules (a duplicate key is a miss), requires the lint and typecheck kinds, the tools they run as dependencies, a `pnpm-workspace.yaml` that decides the `esbuild` and `unrs-resolver` builds and holds the release age (D-439), and a `pnpm-lock.yaml` that covers `package.json`; init writes no lockfile, the entry step makes it next (D-500). A kept workspace file that lacks a decision or the hold stops init with the lines to add. `package.json` keeps its indentation, line endings and key order. Not part of an npm package; run from a checkout. Refs horizon-surveyor#387, D-499.
+- `init/init.mjs`, after the re-review of #49 (horizon-surveyor#387):
+  - `--check` requires `pnpm-lock.yaml` to be made for `package.json`'s `packageManager`: from pnpm 12 on, a pinned `pnpm@X.Y.Z` must be named in the lockfile's first document (`packageManagerDependencies`), else `pnpm install --frozen-lockfile` exits 1 (`ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE`). Read statically; a lockfile made before init added `packageManager` is now a miss, not green.
+  - `--check` decides only the `esbuild` and `unrs-resolver` builds, and the header and README now say so: a build another dependency of the repo has (`better-sqlite3`, `sharp`) is the repo's to decide and a static check cannot see it. Current accepts the entry commit only by building the dependency image from it (horizon-surveyor#388), not on `--check` alone.
+  - The lines init gives for a kept `pnpm-workspace.yaml` go under `allowBuilds` or `minimumReleaseAgeExclude` when the file has that key (inside its braces for a flow mapping), never as a second key of the same name; both undecided builds come under one `allowBuilds` header.
+  - README, "Not checked": where init's YAML reader differs from Current's, and `package.json` formatting beyond indentation, line endings and key order.
 
 ## 0.7.0 (2026-10-12)
 

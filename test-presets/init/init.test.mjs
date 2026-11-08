@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { commandsOf, lockfileProblems, NO_LOCKFILE, parseYaml, PRESETS_VERSION } from './init.mjs'
+import { commandsOf, lockfileProblems, NO_LOCKFILE, parseYaml, pinnedPnpm, PRESETS_VERSION } from './init.mjs'
 
 const INIT = join(import.meta.dirname, 'init.mjs')
 const run = (...args) => spawnSync(process.execPath, [INIT, ...args], { encoding: 'utf8' })
@@ -28,10 +28,14 @@ function starter() {
 /**
  * What the entry step does after init (D-500: `pnpm install --lockfile-only` in Current's package container), as a small v9
  * lockfile in pnpm's own layout: its root importer has package.json's specifiers. `extra` adds lines to `packages:`.
+ * With a pnpm 12 packageManager, pnpm 12 writes an environment document first, naming that pnpm; `pnpm` names another
+ * version there, and `pnpm: false` leaves the document out (a lockfile made without packageManager).
  */
-function lock(dir, { extra = [], overrides } = {}) {
+function lock(dir, { extra = [], overrides, pnpm } = {}) {
   const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
-  const lines = ['---', "lockfileVersion: '9.0'", '', 'importers:', '', '  .:', '    configDependencies: {}', '', '---', "lockfileVersion: '9.0'", '', 'settings:', '  autoInstallPeers: true', '']
+  const version = pnpm ?? pinnedPnpm(pkg.packageManager)
+  const env = version ? ['---', "lockfileVersion: '9.0'", '', 'importers:', '', '  .:', '    configDependencies: {}', '    packageManagerDependencies:', '      pnpm:', `        specifier: ${version}`, `        version: ${version}`, '', 'packages:', '', `  '@pnpm/exe.linux-x64@${version}':`, '    resolution: {integrity: sha512-x}', '', '---'] : []
+  const lines = [...env, "lockfileVersion: '9.0'", '', 'settings:', '  autoInstallPeers: true', '']
   if (overrides) lines.push('overrides:', ...Object.entries(overrides).map(([k, v]) => `  ${k}: ${v}`), '')
   lines.push('importers:', '', '  .:')
   for (const field of ['dependencies', 'devDependencies']) {
@@ -231,8 +235,8 @@ test('S1 and N5: a kept pnpm-workspace.yaml must decide the builds and hold the 
     writeFileSync(join(dir, 'pnpm-workspace.yaml'), "overrides:\n  a>b: ^1.0.0\n")
     const done = run('--stack', 'nuxt', '--dir', dir)
     assert.equal(done.status, 1)
-    assert.match(done.stderr, /does not decide the build of esbuild .*; add:\n {4}allowBuilds:\n {6}esbuild: true/)
-    assert.match(done.stderr, /does not decide the build of unrs-resolver .*; add:\n {4}allowBuilds:\n {6}unrs-resolver: false/)
+    assert.match(done.stderr, /does not decide the builds of esbuild and unrs-resolver .*; add:\n {4}allowBuilds:\n {6}esbuild: true\n {6}unrs-resolver: false\n/)
+    assert.equal(done.stderr.match(/allowBuilds:/g).length, 1, 'one allowBuilds header for both')
     assert.match(done.stderr, /no minimumReleaseAge \(the release-age hold, D-439\); add:\n {4}minimumReleaseAge: 1440/)
     assert.match(done.stderr, /minimumReleaseAgeExclude does not list '@dfox288\/\*'/)
     assert.ok(!existsSync(join(dir, 'scripts/gates.mjs')), 'nothing written')
@@ -258,6 +262,81 @@ test('S1 and N5: a kept pnpm-workspace.yaml must decide the builds and hold the 
     assert.doesNotMatch(check(dir).stdout, /unrs-resolver/)
     rmSync(join(dir, 'pnpm-workspace.yaml'))
     assert.match(check(dir).stdout, /^missing: pnpm-workspace\.yaml$/m)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('N7: a kept workspace file that has allowBuilds or minimumReleaseAgeExclude gets lines to add under that key, never a second one', () => {
+  const dir = starter()
+  try {
+    const ws = join(dir, 'pnpm-workspace.yaml')
+    /** Applies each of init's fixes as printed (the lines after "add:" or "under <key>, add:", 4 columns in). */
+    const apply = (text, stderr) => {
+      for (const [, how, , body] of stderr.matchAll(/; (add|under (\S+), add|set it to):\n((?: {4}.*\n?)+)/g)) {
+        const lines = body.trimEnd().split('\n').map((l) => l.slice(4))
+        const key = how.startsWith('under ') ? how.slice('under '.length, -', add'.length) : undefined
+        if (key === undefined) text = (text.endsWith('\n') ? text : text + '\n') + lines.join('\n') + '\n'
+        else text = text.replace(new RegExp(`^${key}:.*\\n`, 'm'), (head) => head + lines.join('\n') + '\n')
+      }
+      return text
+    }
+    // pnpm 11's likely case (the re-review's): allowBuilds there with esbuild, the hold's exclude list there without our scope
+    const kept = "allowBuilds:\n    esbuild: true\nminimumReleaseAge: 1440\nminimumReleaseAgeExclude:\n  - 'other/*'\n"
+    writeFileSync(ws, kept)
+    const done = run('--stack', 'nuxt', '--dir', dir)
+    assert.equal(done.status, 1)
+    assert.match(done.stderr, /does not decide the build of unrs-resolver .*; under allowBuilds, add:\n {8}unrs-resolver: false\n/)
+    assert.match(done.stderr, /does not list '@dfox288\/\*' .*; under minimumReleaseAgeExclude, add:\n {6}- '@dfox288\/\*'\n/)
+    const fixed = apply(kept, done.stderr)
+    assert.equal(fixed.match(/^allowBuilds:/gm).length, 1, fixed)
+    assert.deepEqual(parseYaml(fixed), { allowBuilds: { esbuild: true, 'unrs-resolver': false }, minimumReleaseAge: 1440, minimumReleaseAgeExclude: ['@dfox288/*', 'other/*'] })
+    writeFileSync(ws, fixed)
+    assert.equal(run('--stack', 'nuxt', '--dir', dir).status, 0, 'the fixed file is accepted')
+    rmSync(join(dir, 'scripts'), { recursive: true })
+    for (const f of ['gates.config.json', 'checks.map.yml', 'checks.kinds.yml']) rmSync(join(dir, f))
+
+    // both builds undecided under an existing (empty) allowBuilds: one block of lines under it
+    writeFileSync(ws, "allowBuilds:\nminimumReleaseAge: 0\nminimumReleaseAgeExclude: ['@dfox288/*']\n")
+    const empty = run('--stack', 'nuxt', '--dir', dir)
+    assert.match(empty.stderr, /does not decide the builds of esbuild and unrs-resolver .*; under allowBuilds, add:\n {6}esbuild: true\n {6}unrs-resolver: false\n/)
+    assert.match(empty.stderr, /no minimumReleaseAge .*; set it to:\n {4}minimumReleaseAge: 1440/)
+    // a flow mapping: the entries go inside its braces
+    writeFileSync(ws, "allowBuilds: { esbuild: true }\nminimumReleaseAge: 1440\nminimumReleaseAgeExclude: ['other/*']\n")
+    const flow = run('--stack', 'nuxt', '--dir', dir)
+    assert.match(flow.stderr, /; inside allowBuilds's \{ \}, add:\n {4}unrs-resolver: false\n/)
+    assert.match(flow.stderr, /; inside minimumReleaseAgeExclude's \[ \], add:\n {4}'@dfox288\/\*'/)
+    assert.doesNotMatch(flow.stderr, /\n {4}allowBuilds:/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('S5: a lockfile not made for package.json\'s packageManager (no environment document, or another pnpm) is a miss', () => {
+  const dir = starter()
+  try {
+    assert.equal(run('--stack', 'nuxt', '--dir', dir).status, 0)
+    const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    assert.equal(pkg.packageManager, 'pnpm@12.8.1')
+    // the re-review's case: the lockfile made before packageManager was there, so pnpm wrote no environment document
+    lock(dir, { pnpm: false })
+    const none = check(dir)
+    assert.equal(none.status, 1)
+    assert.deepEqual(none.stdout.trim().split('\n'), [
+      'pnpm-lock.yaml was not made for packageManager pnpm@12.8.1: it has no environment document naming pnpm (a frozen install exits 1, ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE; the entry step makes it again, D-500)',
+    ])
+    // init's own run takes it as the lockfile miss that comes next
+    lock(dir, { pnpm: '12.9.1' })
+    assert.match(check(dir).stdout, /^pnpm-lock\.yaml was not made for packageManager pnpm@12\.8\.1: its environment document names pnpm 12\.9\.1 /m)
+    lock(dir)
+    assert.equal(check(dir).status, 0)
+
+    const lockText = (pnpm) => (lock(dir, { pnpm }), readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8'))
+    // a hash suffix is not part of the version pnpm writes; pnpm 11 and older, a range, or none ask for no document
+    assert.deepEqual(lockfileProblems(lockText('12.8.1'), { ...pkg, packageManager: 'pnpm@12.8.1+sha512.abc' }), [])
+    for (const packageManager of ['pnpm@11.28.9', 'pnpm@10.20.0', 'pnpm@^12.8.1', 'yarn@4.0.0', undefined]) assert.deepEqual(lockfileProblems(lockText(false), { ...pkg, packageManager }), [], String(packageManager))
+    assert.equal(pinnedPnpm('pnpm@12.0.0'), '12.0.0')
+    assert.equal(pinnedPnpm('pnpm@11.0.0'), undefined)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

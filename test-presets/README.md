@@ -53,25 +53,41 @@ absent; `eslint.config.mjs` (`createConfigForNuxt` standalone, D-510) only when 
 overwrites: a file it would create that exists, or a `lint`/`typecheck`/`gates` script with another value, is named and
 nothing is written. A kept `pnpm-workspace.yaml` that does not decide the builds of `esbuild` and `unrs-resolver`, or lacks
 the release-age hold (`minimumReleaseAge`, `minimumReleaseAgeExclude: ['@dfox288/*']`, D-439), stops it the same way, with
-the lines to add. `package.json` is rewritten with the new keys after the ones there; its indentation, line endings and key
-order stay. The test kind comes with the first tests (the README section says how).
+the lines to add (under the key when the file already has it, never a second key of the same name). `package.json` is
+rewritten with the new keys after the ones there; its indentation, line endings and key order stay, the rest of its
+formatting is `JSON.stringify`'s (an inline array or object comes out one entry per line, an escape such as `\u00e9` is
+decoded). The test kind comes with the first tests (the README section says how).
 
 **The lockfile comes next, from the entry step.** Init does not install and writes no `pnpm-lock.yaml`. Current's entry
 step makes it after init, with `pnpm install --lockfile-only` in Current's package container, never on the host; then it
 runs `--check` (D-500). Init's own run ends with `next: pnpm-lock.yaml ...` and exit 0 when the lockfile is the only miss.
 
 `--check` exits 0 when the repo meets that standard, else 1 with one line per miss: the files; `checks.kinds.yml` and
-`checks.map.yml` under Current's own rules for the two files (current `1699738`: the kinds file's keys and each kind's
-`cache`, `describe`, `image`, `services`, `localhostNames`, `dir`, `env` and `tools` values; the map's version 2 shape, every
-kind run by `always` or `paths`, `narrow`, `triggers` and `edges`; a duplicate key is a miss). Not checked: what the instance
-grants (which images, services and apt packages it allows) and whether a map glob matches a tracked file. The `lint` and
-`typecheck` kinds are there (D-499); the gate script knows every kind (`--list`); for `lint` and `typecheck`, the gate in
+`checks.map.yml` under Current's own rules for the two files, read by a smaller YAML reader than Current's (current
+`1699738`: the kinds file's keys and each kind's `cache`, `describe`, `image`, `services`, `localhostNames`, `dir`, `env`
+and `tools` values; the map's version 2 shape, every kind run by `always` or `paths`, `narrow`, `triggers` and `edges`; a
+duplicate key is a miss). The `lint` and `typecheck` kinds are there (D-499); the gate script knows every kind (`--list`); for `lint` and `typecheck`, the gate in
 `gates.config.json` and the script it calls run eslint and `nuxt typecheck` or `vue-tsc` (a script that only exists is a
 miss); the dependencies `@dfox288/test-gates`, `eslint`, `typescript`, `vue-tsc`, and `@nuxt/eslint-config` when the eslint
-config imports it; the eslint config; `pnpm-workspace.yaml` with the builds decided (a build the lockfile does not have needs
-no decision) and the release-age hold; a `pnpm-lock.yaml` whose root importer has every dependency of `package.json` with
-its specifier, and the workspace file's overrides (read from the file, no install); the registry line, the README section
-and `CLAUDE.md`. After writing, init runs the check itself. Another `--stack` exits 2.
+config imports it; the eslint config; `pnpm-workspace.yaml` deciding the builds of `esbuild` and `unrs-resolver` (the two
+builds Nuxt and init's devDependencies bring; one the lockfile does not have needs no decision) and holding the release age; a
+`pnpm-lock.yaml` whose root importer has every dependency of `package.json` with its specifier, with the workspace file's
+overrides, and made for `package.json`'s `packageManager` (from pnpm 12 on, its first document names that pnpm; a frozen
+install refuses a lockfile without it), all read from the files, no install; the registry line, the README section and
+`CLAUDE.md`. After writing, init runs the check itself. Another `--stack` exits 2.
+
+Not checked, so a green `--check` does not mean the first job installs:
+- Any other build: `--check` decides only `esbuild` and `unrs-resolver`. A build another dependency of the repo has
+  (`better-sqlite3`, `sharp`) is the repo's to decide in `pnpm-workspace.yaml`, and a v9 lockfile does not say which
+  packages build, so a static check cannot see it (`pnpm install --frozen-lockfile` exits 1, `ERR_PNPM_IGNORED_BUILDS`).
+  Current accepts the entry commit only by building the dependency image from it (horizon-surveyor#388), not on
+  `--check` alone.
+- What the instance grants (which images, services and apt packages it allows) and whether a map glob matches a tracked file.
+- Where init's YAML reader and Current's `yaml` differ (none of these comes from a file init writes): a quoted value in a
+  flow mapping, `True`, anchors and aliases read red where Current accepts them; `1e3`, `NULL`, `0o17` read as text and tab
+  indentation read where Current refuses them.
+- `package.json`'s formatting beyond indentation, line endings and key order (see above).
+
 Tests: `node --test test-presets/init/init.test.mjs`.
 
 **A new repo installs the presets at a release with no repin:** run init from a checkout at the release tag, which pins

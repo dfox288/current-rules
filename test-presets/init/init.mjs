@@ -8,10 +8,14 @@
 // The entry standard: the gate script, checks.map.yml (version 2) and checks.kinds.yml with the lint and typecheck kinds
 // (D-499; more kinds may follow, no test kind is needed), both files under Current's own rules; the package.json scripts and
 // dependencies those kinds need (their gates and scripts run eslint and nuxt typecheck or vue-tsc, not just exist); a lint
-// config; a pnpm-workspace.yaml that decides the builds and holds the release age (D-439); a pnpm-lock.yaml that covers
-// package.json; the registry line, README and CLAUDE.md.
+// config; a pnpm-workspace.yaml that decides the esbuild and unrs-resolver builds and holds the release age (D-439); a
+// pnpm-lock.yaml that covers package.json and was made for its packageManager; the registry line, README and CLAUDE.md.
+// --check decides only those two builds: a build another dependency of the repo has (better-sqlite3, sharp) is not seen
+// (a v9 lockfile does not say which packages build), so a green --check does not mean a frozen install passes. The entry
+// commit is accepted only by Current building the dependency image from it (horizon-surveyor#388), not by --check alone.
 // Node built-ins only. It never overwrites a file: a file it would create that exists is named and nothing is written. It
-// rewrites package.json with its new keys added after the ones there (indentation, line endings and key order kept).
+// rewrites package.json with its new keys added after the ones there (indentation, line endings and key order kept; the
+// rest is JSON.stringify's: inline arrays and objects come out one entry per line, an escape such as \u00e9 is decoded).
 // It writes no lockfile: the entry step makes pnpm-lock.yaml next (D-500), and --check is red until it covers package.json.
 // Run it from a checkout of current-rules at a release tag: it pins @dfox288/test-gates to that release (PRESETS_VERSION).
 import { spawnSync } from 'node:child_process'
@@ -401,15 +405,47 @@ function readJson(path) {
 
 /** The tools the two kinds run, which must be in package.json (an offline install has nothing else). */
 const KIND_DEPENDENCIES = { lint: ['eslint'], typecheck: ['typescript', 'vue-tsc'] }
-/** Builds a Nuxt repo with init's devDependencies has, which pnpm 11+ stops `pnpm install` on until the workspace file decides them. */
+/**
+ * Builds a Nuxt repo with init's devDependencies has, which pnpm 11+ stops `pnpm install` on until the workspace file decides
+ * them. The only builds --check decides; the repo's own dependencies' builds are the repo's, found by the dependency image build.
+ */
 const BUILDS = ['esbuild', 'unrs-resolver']
 /** The release-age hold (D-439), and the scope that skips it. */
 const HOLD_EXCLUDE = '@dfox288/*'
 
 /**
+ * How a top-level key of the workspace file is written: 'absent'; 'block' (its entries on the next lines, `indent` being
+ * theirs); 'flow' (`key: { … }` or `key: [ … ]`); or 'value' (a scalar on the key's line).
+ */
+function keyForm(text, key) {
+  const lines = text.split(/\r?\n/)
+  const head = new RegExp(`^${key}[ \\t]*:`)
+  const i = lines.findIndex((l) => head.test(l))
+  if (i < 0) return { form: 'absent' }
+  const rest = stripComment(lines[i]).replace(head, '').trim()
+  if (rest.startsWith('{') || rest.startsWith('[')) return { form: 'flow' }
+  if (rest !== '' && !/^&\S+$/.test(rest)) return { form: 'value' }
+  const next = lines.slice(i + 1).find((l) => stripComment(l).trim() !== '')
+  const lead = next === undefined ? '' : /^[ \t]*/.exec(next)[0]
+  return { form: 'block', indent: lead !== '' || next?.trimStart().startsWith('-') ? lead : '  ' }
+}
+
+/** The lines that add `entries` to the top-level key `key` (a mapping, or a list when `list`), as `how:` and the lines. */
+function addTo(text, key, entries, list = false) {
+  const { form, indent } = keyForm(text, key)
+  const item = (e) => (list ? `- ${e}` : e)
+  const lines = (how, body) => `${how}:\n${body.map((l) => `    ${l}`).join('\n')}`
+  if (form === 'block') return lines(`under ${key}, add`, entries.map((e) => indent + item(e)))
+  if (form === 'flow') return lines(`inside ${key}'s ${list ? '[ ]' : '{ }'}, add`, [entries.join(', ')])
+  return lines(form === 'value' ? `replace ${key} with` : 'add', [`${key}:`, ...entries.map((e) => `  ${item(e)}`)])
+}
+
+/**
  * The problems with a pnpm-workspace.yaml for the entry: every build in BUILDS decided (allowBuilds, or the older
  * onlyBuiltDependencies / ignoredBuiltDependencies / neverBuiltDependencies lists), and the release-age hold. Each is
- * { miss, fix }, fix being the line to add. A build absent from the lockfile, when there is one, needs no decision.
+ * { miss, fix }, fix being what to add, under the key when the file has it (never a second key of the same name). A build
+ * absent from the lockfile, when there is one, needs no decision. Only BUILDS are decided here: a build another dependency
+ * of the repo has is the repo's to decide, and the entry step's dependency image build finds it.
  */
 export function workspaceProblems(text, lockText) {
   let ws
@@ -427,24 +463,45 @@ export function workspaceProblems(text, lockText) {
     ])
     const inTree = (name) => lockText === undefined || new RegExp(`^\\s+'?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}@`, 'm').test(lockText)
     const template = parseYaml(readFileSync(join(TEMPLATES, 'pnpm-workspace.yaml'), 'utf8')).allowBuilds
-    for (const name of BUILDS)
-      if (!decided.has(name) && inTree(name))
-        out.push({ miss: `pnpm-workspace.yaml does not decide the build of ${name} (pnpm install exits 1, ERR_PNPM_IGNORED_BUILDS)`, fix: `allowBuilds:\n  ${name}: ${template[name]}` })
+    const undecided = BUILDS.filter((name) => !decided.has(name) && inTree(name))
+    if (undecided.length > 0)
+      out.push({
+        miss: `pnpm-workspace.yaml does not decide the build${undecided.length > 1 ? 's' : ''} of ${undecided.join(' and ')} (pnpm install exits 1, ERR_PNPM_IGNORED_BUILDS)`,
+        fix: addTo(text, 'allowBuilds', undecided.map((name) => `${name}: ${template[name]}`)),
+      })
   }
-  if (!(typeof ws.minimumReleaseAge === 'number' && ws.minimumReleaseAge > 0)) out.push({ miss: 'pnpm-workspace.yaml has no minimumReleaseAge (the release-age hold, D-439)', fix: 'minimumReleaseAge: 1440' })
+  if (!(typeof ws.minimumReleaseAge === 'number' && ws.minimumReleaseAge > 0))
+    out.push({
+      miss: 'pnpm-workspace.yaml has no minimumReleaseAge (the release-age hold, D-439)',
+      fix: `${keyForm(text, 'minimumReleaseAge').form === 'absent' ? 'add' : 'set it to'}:\n    minimumReleaseAge: 1440`,
+    })
   if (!(Array.isArray(ws.minimumReleaseAgeExclude) && ws.minimumReleaseAgeExclude.includes(HOLD_EXCLUDE)))
-    out.push({ miss: `pnpm-workspace.yaml: minimumReleaseAgeExclude does not list '${HOLD_EXCLUDE}' (our scope skips the hold, D-439)`, fix: `minimumReleaseAgeExclude:\n  - '${HOLD_EXCLUDE}'` })
+    out.push({ miss: `pnpm-workspace.yaml: minimumReleaseAgeExclude does not list '${HOLD_EXCLUDE}' (our scope skips the hold, D-439)`, fix: addTo(text, 'minimumReleaseAgeExclude', [`'${HOLD_EXCLUDE}'`], true) })
   return out
 }
 
 /**
+ * The pnpm version a frozen install needs the lockfile to be made for: `packageManager: pnpm@X.Y.Z` (a `+sha…` suffix
+ * taken off) from pnpm 12 on. pnpm 12 writes it into the lockfile's first document (the environment document,
+ * `importers['.'].packageManagerDependencies.pnpm.specifier`), and `pnpm install --frozen-lockfile` exits 1 when that is
+ * missing or another version (ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE). pnpm 11 and older write no such document
+ * and do not ask for one; a range is not pinned (pnpm runs as it is). Undefined when nothing is required.
+ */
+export function pinnedPnpm(packageManager) {
+  const m = typeof packageManager === 'string' ? /^pnpm@((\d+)\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+.*)?$/.exec(packageManager) : null
+  return m && Number(m[2]) >= 12 ? m[1] : undefined
+}
+
+/**
  * Whether pnpm-lock.yaml covers package.json, read statically (no install): the root importer (`.`) lists each dependency,
- * devDependency and optionalDependency with package.json's specifier (or the workspace file's override for that name), and
- * the lockfile's overrides are the workspace file's. Returns the misses.
+ * devDependency and optionalDependency with package.json's specifier (or the workspace file's override for that name);
+ * the lockfile's overrides are the workspace file's; and it was made for package.json's packageManager (pinnedPnpm).
+ * Returns the misses.
  */
 export function lockfileProblems(lockText, pkg, overrides = {}) {
   const importer = {}
   let lockOverrides
+  let lockPnpm
   try {
     for (const doc of lockText.replace(/\r\n/g, '\n').split(/^---[ \t]*$/m)) {
       const lines = doc.split('\n')
@@ -457,6 +514,8 @@ export function lockfileProblems(lockText, pkg, overrides = {}) {
       }
       const root = section('importers')?.['.']
       for (const field of ['dependencies', 'devDependencies', 'optionalDependencies']) if (isObject(root?.[field])) Object.assign(importer, root[field])
+      const pm = root?.packageManagerDependencies?.pnpm
+      if (lockPnpm === undefined && isObject(pm) && pm.specifier !== undefined && pm.specifier !== null) lockPnpm = String(pm.specifier)
       lockOverrides ??= section('overrides')
     }
   } catch (error) {
@@ -470,6 +529,12 @@ export function lockfileProblems(lockText, pkg, overrides = {}) {
     }
   const out = stale.length > 0 ? [`pnpm-lock.yaml does not cover ${stale.join(', ')} (the entry step makes it again, D-500)`] : []
   if (JSON.stringify(Object.entries(overrides ?? {}).sort()) !== JSON.stringify(Object.entries(lockOverrides ?? {}).sort())) out.push("pnpm-lock.yaml: its overrides are not pnpm-workspace.yaml's (the entry step makes it again, D-500)")
+  const pnpm = pinnedPnpm(pkg.packageManager)
+  if (pnpm !== undefined && lockPnpm !== pnpm)
+    out.push(
+      `pnpm-lock.yaml was not made for packageManager pnpm@${pnpm}: ${lockPnpm === undefined ? 'it has no environment document naming pnpm' : `its environment document names pnpm ${lockPnpm}`} ` +
+        '(a frozen install exits 1, ERR_PNPM_FROZEN_LOCKFILE_WITH_OUTDATED_LOCKFILE; the entry step makes it again, D-500)',
+    )
   return out
 }
 
@@ -610,7 +675,7 @@ export function init(dir) {
   // (no lockfile passed: the one there is made again after init, with init's devDependencies in it)
   if (existsSync(join(dir, 'pnpm-workspace.yaml')))
     for (const { miss, fix } of workspaceProblems(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')))
-      conflicts.push(fix ? `${miss}; add:\n${fix.replace(/^/gm, '    ')}` : miss)
+      conflicts.push(fix ? `${miss}; ${fix}` : miss)
   if (conflicts.length > 0) return { lines: [], conflicts }
 
   const lines = []
