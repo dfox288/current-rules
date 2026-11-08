@@ -53,5 +53,6 @@ selection file's format is in `selection.md`.
 - **[contract item]** The conformance script checks each repo against this file, its binding and the repo's declared
   traits. Each item prints red, green or NOT MEASURED; a check that could not run is never green. It runs in the gate
   before merge and on a schedule over all repos. *(Not enforced yet: horizon-surveyor#70; until then the reviewer checks it.)*
-- A new repo is set up by the conformance script's `init` mode for its stack, and its check is green before the first
-  worker job.
+- A new repo, or one with app code and no tests, is set up by its stack's `init` (Nuxt/TS: `test-presets/init/init.mjs`;
+  other stacks when a repo needs one, D-499), and its check (`--check`) is green before the first worker job. It enters
+  with the lint and typecheck kinds only; the first change that writes tests adds the test kind.

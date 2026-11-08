@@ -1,4 +1,13 @@
-# pnpm 11 reads its settings here, not from package.json.
+# pnpm 11 reads these settings here, not from package.json or a project .npmrc. The same supply-chain controls as the apps
+# (landfall#65).
+# A dependency is installed only once it has been published for a day; our own scope, resolved only from the private
+# registry (`@dfox288:registry=` in .npmrc), skips the hold (D-439).
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - '@dfox288/*'
+# This project's own install scripts (Nuxt's `postinstall: nuxt prepare`) run even where the machine's ~/.npmrc sets
+# ignore-scripts=true. A dependency's build script stays blocked until it is named below.
+ignoreScripts: false
 # pnpm blocks each dependency's build script until it is named here; an undecided one makes `pnpm install` itself exit 1
 # (ERR_PNPM_IGNORED_BUILDS).
 allowBuilds:

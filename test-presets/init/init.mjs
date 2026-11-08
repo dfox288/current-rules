@@ -6,8 +6,10 @@
 //   another --stack                                    exit 2, "no init for stack <x> yet"
 //
 // The entry standard: the gate script, checks.map.yml (version 2) and checks.kinds.yml with lint and typecheck kinds only (no
-// test kind), the package.json scripts and devDependencies those two kinds need, a lint config, README and CLAUDE.md.
+// test kind), the package.json scripts and devDependencies those two kinds need (the lint and typecheck gates and scripts
+// run eslint and nuxt typecheck or vue-tsc, not just exist), a lint config, README and CLAUDE.md.
 // Node built-ins only. It never overwrites a file: a file it would create that exists is named and nothing is written.
+// Run it from a checkout of current-rules at a release tag: it pins @dfox288/test-gates to that release (PRESETS_VERSION).
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -15,9 +17,15 @@ import { dirname, join } from 'node:path'
 const TEMPLATES = join(import.meta.dirname, 'templates')
 const template = (name) => readFileSync(join(TEMPLATES, name), 'utf8')
 
-/** Pinned to what the apps use (cove, beacon) and the released presets. */
+/**
+ * The presets' version is the version of this checkout's own `gates/package.json`: init run from the tag
+ * `test-presets-vX.Y.Z` pins `@dfox288/test-gates` X.Y.Z, the release that tag published, so a new repo needs no repin.
+ */
+export const PRESETS_VERSION = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'gates', 'package.json'), 'utf8')).version
+
+/** The others are pinned to what the five apps use (bridge, cove, beacon, lookout's web app; tide's are older). */
 export const DEV_DEPENDENCIES = {
-  '@dfox288/test-gates': '0.7.0',
+  '@dfox288/test-gates': PRESETS_VERSION,
   '@nuxt/eslint-config': '^1.17.0',
   eslint: '^10.8.1',
   typescript: '~5.9.3',
@@ -28,8 +36,13 @@ export const SCRIPTS = {
   typecheck: 'nuxt typecheck',
   gates: 'node scripts/gates.mjs',
 }
+/** Set only when absent, as in the five apps: the pnpm Current also uses when a repo names none, and test-gates' Node. */
+const PACKAGE_MANAGER = 'pnpm@12.8.1'
+const NODE_ENGINE = '>=24'
 const NPMRC_LINE = '@dfox288:registry=https://npm.registry.tastatur-und-maus.net/'
-const README_HEADING = '## Tests'
+/** The apps' heading of the section (bridge, cove, beacon, lookout, tide); --check takes any `## Tests...` heading. */
+const README_HEADING = '## Tests and gates'
+const hasTestsSection = (text) => text.split('\n').some((l) => /^## Tests\b/.test(l.trim()))
 const ESLINT_CONFIGS = ['js', 'mjs', 'cjs', 'ts', 'mts', 'cts'].map((x) => `eslint.config.${x}`)
 
 /** Files init creates; any of them already there stops it. [path in the repo, template name]. */
@@ -252,6 +265,33 @@ export function mapProblems(parsed, kindNames) {
   return out
 }
 
+/**
+ * The commands of a script or shell line, each as its words: `nuxi prepare && eslint .` gives [nuxi, prepare] and
+ * [eslint, .]. Quotes around words, leading `VAR=value` words and the prefixes `sh -c`, `pnpm exec` and `npx` are taken
+ * off; it is a reading of the usual script shapes, not a shell parser.
+ */
+export function commandsOf(line) {
+  const out = []
+  for (const part of line.split(/&&|\|\||[;|]/)) {
+    let words = part.split(/\s+/).map((w) => w.replace(/^[('"]+|[)'"]+$/g, '')).filter(Boolean)
+    for (let before = -1; before !== words.length; ) {
+      before = words.length
+      while (words.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words.shift()
+      if ((words[0] === 'sh' || words[0] === 'bash') && words[1] === '-c') words = words.slice(2)
+      else if (words[0] === 'pnpm' && words[1] === 'exec') words = words.slice(2)
+      else if (words[0] === 'npx') words = words.slice(1)
+    }
+    if (words.length > 0) out.push(words)
+  }
+  return out
+}
+
+/** What the lint and typecheck kinds must run, as one of the commands of their script or gate command. */
+const TOOLS = {
+  lint: { tool: 'eslint', runs: (w) => w[0] === 'eslint' },
+  typecheck: { tool: 'nuxt typecheck or vue-tsc', runs: (w) => ((w[0] === 'nuxt' || w[0] === 'nuxi') && w[1] === 'typecheck') || w[0] === 'vue-tsc' },
+}
+
 function readJson(path) {
   try {
     return { value: JSON.parse(readFileSync(path, 'utf8')) }
@@ -300,15 +340,33 @@ export function check(dir) {
     }
   }
 
+  let gateCommands
   if (need('gates.config.json')) {
     const config = readJson(at('gates.config.json'))
     if (config.error) misses.push(`gates.config.json does not parse: ${config.error}`)
     else if (config.value.stack !== 'vitest' && config.value.stack !== 'pytest') misses.push('gates.config.json: stack is not "vitest" or "pytest"')
+    else gateCommands = isObject(config.value.gates) ? config.value.gates : {}
   }
   if (!deps['@dfox288/test-gates']) misses.push('package.json: devDependency @dfox288/test-gates is missing (scripts/gates.mjs runs test-gates)')
   if (!scripts.gates) misses.push('package.json: script "gates" is missing')
-  if (kindNames.includes('lint') && !scripts.lint) misses.push('package.json: script "lint" is missing (kind lint)')
-  if (kindNames.includes('typecheck') && !scripts.typecheck) misses.push('package.json: script "typecheck" is missing (kind typecheck)')
+  // lint and typecheck run what their names say, all the way down: the kind's gate in gates.config.json, and the package.json
+  // script that gate calls (`pnpm <script>`), run the kind's tool. A script that only exists (`lint: echo hi`) is a miss.
+  for (const kind of Object.keys(TOOLS)) {
+    if (!kindNames.includes(kind)) continue
+    const { runs, tool } = TOOLS[kind]
+    if (typeof scripts[kind] !== 'string') misses.push(`package.json: script "${kind}" is missing (kind ${kind})`)
+    else if (!commandsOf(scripts[kind]).some(runs)) misses.push(`package.json: script "${kind}" is "${scripts[kind]}", which does not run ${tool} (kind ${kind})`)
+    if (gateCommands === undefined) continue
+    const argv = gateCommands[kind]
+    if (!Array.isArray(argv) || argv.length === 0 || !argv.every((a) => typeof a === 'string')) {
+      misses.push(`gates.config.json: gate "${kind}" has no command (test-gates skips it, so kind ${kind} would run no gate)`)
+      continue
+    }
+    const script = argv[0] === 'pnpm' ? (argv[1] === 'run' ? argv[2] : argv[1]) : undefined
+    const viaScript = script !== undefined && argv.length === (argv[1] === 'run' ? 3 : 2) && typeof scripts[script] === 'string'
+    const line = viaScript ? scripts[script] : argv.join(' ')
+    if (!commandsOf(line).some(runs)) misses.push(`gates.config.json: gate "${kind}" runs "${argv.join(' ')}"${viaScript ? ` ("${line}")` : ''}, which does not run ${tool}`)
+  }
   if (kindNames.includes('lint') && !ESLINT_CONFIGS.some((f) => existsSync(at(f)))) misses.push('missing: eslint.config.* (kind lint)')
 
   if (need('scripts/gates.mjs') && kindNames.length > 0) {
@@ -322,7 +380,7 @@ export function check(dir) {
   }
 
   if (!existsSync(at('.npmrc')) || !readFileSync(at('.npmrc'), 'utf8').includes('@dfox288:registry=')) misses.push('.npmrc: no @dfox288:registry line')
-  if (need('README.md') && !readFileSync(at('README.md'), 'utf8').split('\n').some((l) => l.trim() === README_HEADING)) misses.push(`README.md: no "${README_HEADING}" section`)
+  if (need('README.md') && !hasTestsSection(readFileSync(at('README.md'), 'utf8'))) misses.push(`README.md: no "${README_HEADING}" section`)
   need('CLAUDE.md')
   return misses
 }
@@ -366,18 +424,26 @@ export function init(dir) {
   for (const [name, command] of Object.entries(SCRIPTS)) if (pkg.scripts[name] === undefined) (pkg.scripts[name] = command), added.push(`script ${name}`)
   const present = { ...pkg.dependencies, ...pkg.devDependencies }
   pkg.devDependencies = { ...pkg.devDependencies }
-  for (const [name, version] of Object.entries(DEV_DEPENDENCIES)) if (present[name] === undefined) (pkg.devDependencies[name] = version), added.push(name)
+  // @nuxt/eslint-config only for the eslint.config.mjs init writes; a repo's own config brings what it imports
+  const ownEslintConfig = ESLINT_CONFIGS.some((f) => existsSync(join(dir, f)))
+  for (const [name, version] of Object.entries(DEV_DEPENDENCIES))
+    if (present[name] === undefined && !(ownEslintConfig && name === '@nuxt/eslint-config')) (pkg.devDependencies[name] = version), added.push(name)
   pkg.devDependencies = Object.fromEntries(Object.entries(pkg.devDependencies).sort(([a], [b]) => a.localeCompare(b)))
+  if (pkg.packageManager === undefined) (pkg.packageManager = PACKAGE_MANAGER), added.push(`packageManager ${PACKAGE_MANAGER}`)
+  if (pkg.engines?.node === undefined) (pkg.engines = { ...pkg.engines, node: NODE_ENGINE }), added.push(`engines.node ${NODE_ENGINE}`)
   writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg, null, indent) + '\n')
   lines.push(`updated package.json (${added.length ? 'added ' + added.join(', ') : 'nothing to add'})`)
 
   // a lint config, if the repo has none
-  if (ESLINT_CONFIGS.some((f) => existsSync(join(dir, f)))) lines.push('kept its own eslint.config.*')
+  if (ownEslintConfig) lines.push('kept its own eslint.config.*')
   else write('eslint.config.mjs', template('eslint.config.mjs'))
 
   // pnpm 11 stops `pnpm install` on a dependency build script nobody decided on
-  if (existsSync(join(dir, 'pnpm-workspace.yaml'))) lines.push('kept its own pnpm-workspace.yaml (it must decide the build scripts of esbuild and unrs-resolver: allowBuilds)')
-  else write('pnpm-workspace.yaml', template('pnpm-workspace.yaml'))
+  if (existsSync(join(dir, 'pnpm-workspace.yaml'))) {
+    const text = readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')
+    const undecided = ['esbuild', 'unrs-resolver'].filter((name) => !new RegExp(`^\\s+['"]?${name}['"]?:`, 'm').test(text))
+    lines.push(`kept its own pnpm-workspace.yaml${undecided.length ? ` (its allowBuilds must decide ${undecided.join(' and ')}, or pnpm install exits 1)` : ''}`)
+  } else write('pnpm-workspace.yaml', template('pnpm-workspace.yaml'))
 
   // the registry scope for @dfox288
   const npmrc = join(dir, '.npmrc')
@@ -404,7 +470,7 @@ export function init(dir) {
   if (!existsSync(readme)) write('README.md', template('README.section.md'))
   else {
     const text = readFileSync(readme, 'utf8')
-    if (text.split('\n').some((l) => l.trim() === README_HEADING)) lines.push('kept the Tests section of README.md')
+    if (hasTestsSection(text)) lines.push('kept the Tests section of README.md')
     else {
       writeFileSync(readme, text + (text === '' || text.endsWith('\n') ? '' : '\n') + '\n' + template('README.section.md'))
       lines.push('appended the Tests section to README.md')

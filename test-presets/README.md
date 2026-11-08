@@ -42,14 +42,34 @@ committed, because pnpm skips install scripts (`prepare`) here: after changing `
 
 ## Init (entry files)
 
-`node test-presets/init/init.mjs --stack nuxt --dir <repo>` writes what a repo with app code and no tests needs before
-Current starts a job on it: `scripts/gates.mjs`, `gates.config.json`, `checks.map.yml` (version 2) and `checks.kinds.yml`
-with `lint` and `typecheck` kinds only, the `lint`, `typecheck` and `gates` scripts and their devDependencies
-(`@dfox288/test-gates` 0.7.0, `@nuxt/eslint-config`, `eslint`, `typescript`, `vue-tsc`), `eslint.config.mjs` if the repo has
-none, `pnpm-workspace.yaml` (build-script decisions pnpm 11 needs), `.npmrc` (the `@dfox288` registry), `.tmp` in
-`.gitignore`, a "Tests" section in `README.md` and a `CLAUDE.md` if none. It never overwrites: a file it would create that
-exists is named and nothing is written. `--check` exits 0 when the repo meets that standard, else 1 with one line per miss;
-another `--stack` exits 2. Tests: `node --test test-presets/init/init.test.mjs`.
+`node test-presets/init/init.mjs --stack nuxt --dir <repo>` writes what a Nuxt repo with app code and no tests needs before
+Current starts a job on it (D-499): `scripts/gates.mjs`, `gates.config.json` (no tiers), `checks.map.yml` (version 2) and
+`checks.kinds.yml` with `lint` and `typecheck` kinds only; the `lint` (`eslint .`), `typecheck` (`nuxt typecheck`) and
+`gates` scripts; the devDependencies `@dfox288/test-gates` (the version of this checkout's `gates/package.json`), `eslint`,
+`typescript`, `vue-tsc` and, with the config it writes, `@nuxt/eslint-config`; `packageManager` and `engines.node` when
+absent; `eslint.config.mjs` (`createConfigForNuxt` standalone, D-510) only when the repo has no `eslint.config.*`;
+`pnpm-workspace.yaml` if absent (the apps' release-age hold and the build-script decisions pnpm 11 needs); `.npmrc` (the
+`@dfox288` registry); `.tmp` in `.gitignore`; a "Tests and gates" section in `README.md`; a `CLAUDE.md` if none. It never
+overwrites: a file it would create that exists, or a `lint`/`typecheck`/`gates` script with another value, is named and
+nothing is written. It writes no lockfile (it does not install). The test kind comes with the first tests (the README
+section says how).
+
+`--check` exits 0 when the repo meets that standard, else 1 with one line per miss: the files; `checks.kinds.yml` and
+`checks.map.yml` as Current reads them (version 2, every kind run by `always` or `paths`, no empty `kinds`); the gate script
+knows every kind (`--list`); for `lint` and `typecheck`, the gate in `gates.config.json` and the script it calls run eslint
+and `nuxt typecheck` or `vue-tsc` (a script that only exists is a miss); `@dfox288/test-gates`, the eslint config, the
+registry line, the README section and `CLAUDE.md`. After writing, init runs the check itself. Another `--stack` exits 2.
+Tests: `node --test test-presets/init/init.test.mjs`.
+
+**A new repo installs the presets at a release with no repin:** run init from a checkout at the release tag, which pins
+`@dfox288/test-gates` to that tag's version, the one its release published:
+
+```sh
+git clone --depth 1 --branch test-presets-vX.Y.Z https://github.com/dfox288/current-rules /tmp/current-rules
+node /tmp/current-rules/test-presets/init/init.mjs --stack nuxt --dir <repo>
+```
+
+Init is not part of an npm package. A checkout of `main` between releases pins the version its `gates/package.json` has.
 
 ## Release and registry install
 

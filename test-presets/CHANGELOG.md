@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- `init/init.mjs`: writes a Nuxt repo's entry files (lint and typecheck kinds, no test kind) and checks them. Not part of an npm package; run from a checkout. Refs horizon-surveyor#387, D-499.
+- `init/init.mjs`: writes a Nuxt repo's entry files (lint and typecheck kinds, no test kind; `eslint.config.mjs` with `@nuxt/eslint-config` standalone only when the repo has none, D-510) and checks them; `--check` also requires the lint and typecheck gates and scripts to run eslint and `nuxt typecheck` or `vue-tsc`. It pins `@dfox288/test-gates` to its own checkout's version, so init run from a release tag needs no repin. Not part of an npm package; run from a checkout. Refs horizon-surveyor#387, D-499.
 
 ## 0.7.0 (2026-10-12)
 

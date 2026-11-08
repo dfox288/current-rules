@@ -9,7 +9,7 @@ A Nuxt app. This file is short on purpose; extend it as the project grows.
 - `checks.map.yml` says which kinds a change runs, `checks.kinds.yml` what each kind is. Both are fenced: a change to them
   is a change to how every check runs.
 - There are no tests yet. The first change that writes tests adds the test kind, following current-rules `testing.md` and
-  `bindings/nuxt-ts.md` (see "Tests" in README.md).
+  `bindings/nuxt-ts.md` (see "Tests and gates" in README.md).
 
 ## Rules
 
