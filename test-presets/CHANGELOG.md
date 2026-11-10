@@ -13,6 +13,7 @@ Minor: adds `init/init.mjs` (the Nuxt/TS entry files, horizon-surveyor#387; not 
   - The lines init gives for a kept `pnpm-workspace.yaml` go under `allowBuilds` or `minimumReleaseAgeExclude` when the file has that key in block form (a quoted key too); for a flow `{ }` or `[ ]`, or a scalar, init gives the key with its whole new value to put in place of the old one. Never a second key of the same name; both undecided builds come under one `allowBuilds` header.
   - Init's YAML reader refuses flow items with no comma between them (`['a' 'b']`, `{ a: true b: false }`), as pnpm and Current's `yaml` do; it read them as two items or one text before.
   - README, "Not checked": where init's YAML reader differs from Current's, and `package.json` formatting beyond indentation, line endings and key order.
+- Vitest preset and the Nuxt fixture: Playwright 1.60.0 → 1.65.0 (devDependencies), because Playwright below 1.61.0 cannot install chromium on GitHub's ubuntu-26.04 runners; the vitest preset's `playwright` peer widens from `1.60.0` to `>=1.60.0 <1.66.0`, so an app on 1.60.0 need not move.
 
 ## 0.7.0 (2026-10-12)
 
