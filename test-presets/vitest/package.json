@@ -60,7 +60,7 @@
   },
   "peerDependencies": {
     "@nuxt/test-utils": "^4.3.2",
-    "playwright": "1.60.0",
+    "playwright": ">=1.60.0 <1.66.0",
     "postgres": "3.4.9",
     "vitest": "5.0.3"
   },
@@ -78,7 +78,7 @@
   "devDependencies": {
     "@nuxt/test-utils": "^4.3.2",
     "@types/node": "^24.0.0",
-    "playwright": "1.60.0",
+    "playwright": "1.65.0",
     "postgres": "3.4.9",
     "typescript": "~5.9.3",
     "vitest": "5.0.3"

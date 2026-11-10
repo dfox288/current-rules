@@ -4,7 +4,7 @@
 
 ## 0.8.0 (2026-11-08)
 
-Minor: adds `init/init.mjs` (the Nuxt/TS entry files, horizon-surveyor#387; not in an npm package, run from a checkout at this tag). The vitest, gates and pytest packages are unchanged except their version.
+Minor: adds `init/init.mjs` (the Nuxt/TS entry files, horizon-surveyor#387; not in an npm package, run from a checkout at this tag). The vitest preset's `package.json` also moves Playwright (devDependency 1.65.0, peer widened to `>=1.60.0 <1.66.0`); the gates and pytest packages are unchanged except their version.
 
 - `init/init.mjs`: writes a Nuxt repo's entry files (lint and typecheck kinds, no test kind; `eslint.config.mjs` with `@nuxt/eslint-config` standalone only when the repo has none, D-510) and checks them; `--check` also requires the lint and typecheck gates and scripts to run eslint and `nuxt typecheck` or `vue-tsc`. It pins `@dfox288/test-gates` to its own checkout's version, so init run from a release tag needs no repin. `--check` applies Current's kinds-file and map rules (a duplicate key is a miss), requires the lint and typecheck kinds, the tools they run as dependencies, a `pnpm-workspace.yaml` that decides the `esbuild` and `unrs-resolver` builds and holds the release age (D-439), and a `pnpm-lock.yaml` that covers `package.json`; init writes no lockfile, the entry step makes it next (D-500). A kept workspace file that lacks a decision or the hold stops init with the lines to add. `package.json` keeps its indentation, line endings and key order. Not part of an npm package; run from a checkout. Refs horizon-surveyor#387, D-499.
 - `init/init.mjs`, after the re-review of #49 (horizon-surveyor#387):
@@ -13,6 +13,7 @@ Minor: adds `init/init.mjs` (the Nuxt/TS entry files, horizon-surveyor#387; not 
   - The lines init gives for a kept `pnpm-workspace.yaml` go under `allowBuilds` or `minimumReleaseAgeExclude` when the file has that key in block form (a quoted key too); for a flow `{ }` or `[ ]`, or a scalar, init gives the key with its whole new value to put in place of the old one. Never a second key of the same name; both undecided builds come under one `allowBuilds` header.
   - Init's YAML reader refuses flow items with no comma between them (`['a' 'b']`, `{ a: true b: false }`), as pnpm and Current's `yaml` do; it read them as two items or one text before.
   - README, "Not checked": where init's YAML reader differs from Current's, and `package.json` formatting beyond indentation, line endings and key order.
+- Vitest preset and the Nuxt fixture: Playwright 1.60.0 → 1.65.0 (devDependencies), because Playwright below 1.61.0 cannot install chromium on GitHub's ubuntu-26.04 runners; the vitest preset's `playwright` peer widens from `1.60.0` to `>=1.60.0 <1.66.0`, so an app on 1.60.0 need not move.
 
 ## 0.7.0 (2026-10-12)
 
